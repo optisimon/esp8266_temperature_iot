@@ -11,7 +11,8 @@ Sorry, your browser does not support the canvas element!
 <script>
 function myOnLoad() {
   var h = document.getElementById("myHeader");
-  h.innerHTML = "Last value: " + readings[readings.length - 1].toFixed(2);
+  h.innerHTML = "Last value: " + readings[readings.length - 1].toFixed(2) +
+                ". Trend for last hour:";
   var c = document.getElementById("myCanvas");
   var ctx = c.getContext("2d");
 
@@ -24,19 +25,44 @@ function myOnLoad() {
   }
 
   function redraw() {
+	ctx.beginPath();
     ctx.strokeStyle = 'blue';
     ctx.lineWidth = '5';
     ctx.strokeRect(0, 0, c.width, c.height);
 
+	ctx.beginPath();
+	ctx.lineWidth = '1';
+    var scaleX = c.width * 1.0 / readings.length;
+    var maxY = 50;
+    var scaleY = c.height * 1.0 / maxY;
+    
+    
+    // Make grid
+    var divisionsX = 6;
+    var divisionsY = 5;
+    ctx.strokeStyle = "blue";
+    ctx.font="100% sans-serif";
+    for (var x = 0; x < divisionsX; x++)
+    {
+		ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
+		ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
+	}
+	for (var y = 0; y < divisionsY; y++)
+	{
+		ctx.moveTo(0, y * (c.height - 1) / divisionsY);
+		ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
+		ctx.strokeText(((divisionsY - y) * maxY / divisionsY).toFixed(1), 5, y * (c.height - 1) / divisionsY - 1);
+	}
+	ctx.stroke();
+	
+	ctx.beginPath();
+    ctx.moveTo(0, c.height - scaleY * readings[0]);
     ctx.strokeStyle = 'black';
     ctx.lineWidth = '2';
-    var scaleX = c.width * 1.0 / readings.length;
-    var scaleY = c.height * 1.0 / 50;
-    ctx.moveTo(0, c.height - scaleY * readings[0]);
     for (var i = 0; i < readings.length; i++) {
       ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
-      ctx.stroke();
     }
+    ctx.stroke();
   }
 
   function refresh() {
