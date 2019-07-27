@@ -1,0 +1,61 @@
+<html>
+
+<body onload="myOnLoad()">
+<H1>Test</H1>
+<canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
+Sorry, your browser does not support the canvas element!
+</canvas>
+
+<script src="readings.js"></script>
+
+<script>
+function myOnLoad() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+
+  initialize();
+
+  function initialize() {
+    window.addEventListener('resize', resizeCanvas, false);
+    resizeCanvas();
+    setInterval(refresh, 10000);
+  }
+
+  function redraw() {
+    ctx.strokeStyle = 'blue';
+    ctx.lineWidth = '5';
+    ctx.strokeRect(0, 0, c.width, c.height);
+
+    ctx.strokeStyle = 'black';
+    ctx.lineWidth = '2';
+    var scaleX = c.width * 1.0 / readings.length;
+    var scaleY = c.height * 1.0 / 50;
+    ctx.moveTo(0, c.height - scaleY * readings[0]);
+    for (var i = 0; i < readings.length; i++) {
+      ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
+      ctx.stroke();
+    }
+  }
+
+  function refresh() {
+   
+    // TODO: fetch new fetch new json object and redraw() without reload
+    //       https://www.w3schools.com/js/js_json_http.asp
+    location.reload(true);
+  }
+
+  // Runs each time the DOM window resize event fires.
+  // Resets the canvas dimensions to match window,
+  // then draws the new borders accordingly.
+  function resizeCanvas() {
+    c.width = window.innerWidth - 50; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
+    c.height = window.innerHeight - 100; // TODO: either full size, or determine absolute size somehow
+    redraw();
+  }
+
+}
+</script>
+
+</body>
+
+</html>
