@@ -1,7 +1,7 @@
 <html>
 
 <body onload="myOnLoad()">
-<H1>Test</H1>
+<H1 id="myHeader">Last Value: </H1>
 <canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
 Sorry, your browser does not support the canvas element!
 </canvas>
@@ -10,6 +10,8 @@ Sorry, your browser does not support the canvas element!
 
 <script>
 function myOnLoad() {
+  var h = document.getElementById("myHeader");
+  h.innerHTML = "Last value: " + readings[readings.length - 1].toFixed(2);
   var c = document.getElementById("myCanvas");
   var ctx = c.getContext("2d");
 

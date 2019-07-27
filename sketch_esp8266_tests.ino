@@ -1,6 +1,13 @@
+#include <DallasTemperature.h>
+
 #include <ESP8266WebServer.h>
 
 #include <ESP8266WiFi.h>
+
+const unsigned long time_between_readings_ms = 10000; // 1000 ms seemed stable
+const int oneWireBus = 4; // D2 is the same as gpio4 on my board...
+OneWire oneWire(oneWireBus);
+DallasTemperature sensors(&oneWire);
 
 
 IPAddress local_IP(192,168,1,1);
@@ -13,7 +20,7 @@ const char* password = "testtest"; // Password needs to be at least 8 characters
 template<class T, int N>
 class CircularBuffer {
 public:
-  CircularBuffer() : _readPos(0), _writePos(0), _size(0), _nullInitialized{} {
+  CircularBuffer() : _readPos(0), _writePos(0), _size(0) {
     
   }
   ~CircularBuffer() {
@@ -60,9 +67,14 @@ public:
   }
   int size() const { return _size; }
   
-  T& operator[](int pos) {
+  T& operator[](int pos)
+  {
     if (pos > _size)
-      return _nullInitialized; // todo decide what to do in this error case...
+    {
+      static T nullInitialized{};
+      Serial.println("ERROR: pos > size in circular buffer");
+      return nullInitialized; // todo decide what to do in this error case...
+    }
     else
     {
       int offset = _readPos + pos;
@@ -79,7 +91,6 @@ private:
     else
       return 0;
   }
-  T _nullInitialized;
   T _data[N];
   int _readPos;
   int _writePos;
@@ -90,7 +101,7 @@ private:
 
 ESP8266WebServer server(80);
 
-CircularBuffer<float, 20> readings;
+CircularBuffer<float, 360> readings;
 
 void handleRoot()
 {
@@ -101,7 +112,7 @@ void handleRoot()
   String s = "<html>\n"
 "\n"
 "<body onload=\"myOnLoad()\">\n"
-"<H1>Test</H1>\n"
+"<H1 id=\"myHeader\">Last value: </H1>\n"
 "<canvas id=\"myCanvas\", width=\"80\", height=\"300\" style=\"border:1px solid #808080;\">\n"
 "Sorry, your browser does not support the canvas element!\n"
 "</canvas>\n"
@@ -110,6 +121,8 @@ void handleRoot()
 "\n"
 "<script>\n"
 "function myOnLoad() {\n"
+"  var h = document.getElementById(\"myHeader\");\n" // TODO: handle length 0 nicely?
+"  h.innerHTML = \"Last value: \" + readings[readings.length - 1].toFixed(2);\n"
 "  var c = document.getElementById(\"myCanvas\");\n"
 "  var ctx = c.getContext(\"2d\");\n"
 "\n"
@@ -180,6 +193,10 @@ void handleReadings()
 void setup()
 {
   Serial.begin(115200);
+  while(!Serial)
+  {
+    ; // wait for serial port to connect. only needed for native USB port
+  }
   Serial.println();
 
   Serial.print("Setting soft-AP configuration ... ");
@@ -193,23 +210,51 @@ void setup()
   server.on("/", handleRoot);
   server.on("/readings.js", handleReadings);
   server.begin();
-  Serial.print("Server listening on");
+  Serial.print("Server listening on ");
   Serial.println(WiFi.softAPIP());
 
   readings.fill(0.0f);
+/*  
   readings[0] = 0;
   readings[1] = 10;
   readings[2] = 30;
   readings[3] = 20;
   readings[4] = 0;
   readings[5] = 15;
+*/  
+
+  Serial.print("Starting temperature sensor monitoring... ");
+  sensors.begin(); // TODO: do we have a return status??
+  Serial.print(sensors.getDeviceCount());
+  Serial.println(" devices found");
 }
 
 void loop()
 {
-  Serial.printf("Stations connected = %d\n", WiFi.softAPgetStationNum());
-  delay(3000);
-  server.handleClient();
+  unsigned long startMillis = millis();
 
-  readings.push_back_erase_if_full(0.1f * random(0, 500));
+  while (true)
+  {
+    //Serial.printf("Stations connected = %d\n", WiFi.softAPgetStationNum());
+    //delay(3000);
+  
+    sensors.requestTemperatures();
+    float temperatureCelcius = sensors.getTempCByIndex(0);
+    //float temperatureCelcius = 0.1f * random(0, 500);
+    readings.push_back_erase_if_full(temperatureCelcius);
+    Serial.println(temperatureCelcius);
+  
+    // While busy waiting for next reading - handle web requests
+    do
+    {
+      server.handleClient();
+      delay(20); // TODO: is this needed??
+      //            Working combination is 500ms / reading + 10ms here. (ap most often there)
+      //            Non-working combination is 500ms / reading + 1ms here (ap disapperas)
+      //            Working rock stable: 1000ms / 20ms
+    }
+    while (millis() - startMillis < time_between_readings_ms);
+
+    startMillis += time_between_readings_ms;
+  }
 }
