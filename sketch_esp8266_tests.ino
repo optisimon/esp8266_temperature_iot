@@ -4,7 +4,8 @@
 
 #include <ESP8266WiFi.h>
 
-const unsigned long time_between_readings_ms = 10000; // 1000 ms seemed stable
+const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
+const unsigned long time_between_24h_readings_ms = 60000UL;
 const int oneWireBus = 4; // D2 is the same as gpio4 on my board...
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
@@ -101,118 +102,196 @@ private:
 
 ESP8266WebServer server(80);
 
-CircularBuffer<float, 360> readings;
+CircularBuffer<float, 360> readings_1h;
+CircularBuffer<float, 1440> readings_24h;
 
 void handleRoot()
 {
   // created string by running
   // cat main.html | sed -e 's/\"/\\"/g' -e 's/$/\\n\"/' -e 's/^/\"/'
+  //
+  // When running tests against main.html requiring a web server on the other end
+  // one could run this in the source folder:
+  // python3 -m http.server --bind 127.0.0.1
+  // and browse to 127.0.0.1:8000
   
   //String s = "<h1>Something is working! /sg</h1><p>Readings: ";
-  String s = "<html>\n"
-"\n"
-"<body onload=\"myOnLoad()\">\n"
-"<H1 id=\"myHeader\">Last Value: </H1>\n"
-"<canvas id=\"myCanvas\", width=\"80\", height=\"300\" style=\"border:1px solid #808080;\">\n"
-"Sorry, your browser does not support the canvas element!\n"
-"</canvas>\n"
-"\n"
-"<script src=\"readings.js\"></script>\n"
-"\n"
-"<script>\n"
-"function myOnLoad() {\n"
-"  var h = document.getElementById(\"myHeader\");\n"
-"  h.innerHTML = \"Last value: \" + readings[readings.length - 1].toFixed(2) +\n"
-"                \". Trend for last hour:\";\n"
-"  var c = document.getElementById(\"myCanvas\");\n"
-"  var ctx = c.getContext(\"2d\");\n"
-"\n"
-"  initialize();\n"
-"\n"
-"  function initialize() {\n"
-"    window.addEventListener('resize', resizeCanvas, false);\n"
-"    resizeCanvas();\n"
-"    setInterval(refresh, 10000);\n"
-"  }\n"
-"\n"
-"  function redraw() {\n"
-"	ctx.beginPath();\n"
-"    ctx.strokeStyle = 'blue';\n"
-"    ctx.lineWidth = '5';\n"
-"    ctx.strokeRect(0, 0, c.width, c.height);\n"
-"\n"
-"	ctx.beginPath();\n"
-"	ctx.lineWidth = '1';\n"
-"    var scaleX = c.width * 1.0 / readings.length;\n"
-"    var maxY = 50;\n"
-"    var scaleY = c.height * 1.0 / maxY;\n"
-"    \n"
-"    \n"
-"    // Make grid\n"
-"    var divisionsX = 6;\n"
-"    var divisionsY = 5;\n"
-"    ctx.strokeStyle = \"blue\";\n"
-"    ctx.font=\"100% sans-serif\";\n"
-"    for (var x = 0; x < divisionsX; x++)\n"
-"    {\n"
-"		ctx.moveTo(x * (c.width - 1) / divisionsX, 0);\n"
-"		ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);\n"
-"	}\n"
-"	for (var y = 0; y < divisionsY; y++)\n"
-"	{\n"
-"		ctx.moveTo(0, y * (c.height - 1) / divisionsY);\n"
-"		ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);\n"
-"		ctx.strokeText(((divisionsY - y) * maxY / divisionsY).toFixed(1), 5, y * (c.height - 1) / divisionsY - 1);\n"
-"	}\n"
-"	ctx.stroke();\n"
-"	\n"
-"	ctx.beginPath();\n"
-"    ctx.moveTo(0, c.height - scaleY * readings[0]);\n"
-"    ctx.strokeStyle = 'black';\n"
-"    ctx.lineWidth = '2';\n"
-"    for (var i = 0; i < readings.length; i++) {\n"
-"      ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);\n"
-"    }\n"
-"    ctx.stroke();\n"
-"  }\n"
-"\n"
-"  function refresh() {\n"
-"   \n"
-"    // TODO: fetch new fetch new json object and redraw() without reload\n"
-"    //       https://www.w3schools.com/js/js_json_http.asp\n"
-"    location.reload(true);\n"
-"  }\n"
-"\n"
-"  // Runs each time the DOM window resize event fires.\n"
-"  // Resets the canvas dimensions to match window,\n"
-"  // then draws the new borders accordingly.\n"
-"  function resizeCanvas() {\n"
-"    c.width = window.innerWidth - 50; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window\n"
-"    c.height = window.innerHeight - 100; // TODO: either full size, or determine absolute size somehow\n"
-"    redraw();\n"
-"  }\n"
-"\n"
-"}\n"
-"</script>\n"
-"\n"
-"</body>\n"
-"\n"
-"</html>\n";
+  String s = R"rawliteral(
+<html>
+<body onload="myOnLoad()">
+
+<p>Last Value: <span id="myLastValue"></span>.
+Last Update: <span id="myLastUpdate">No readings yet</span>.
+Trend for
+<select id="myDurationSelect" onchange="myDurationChanged()">
+ <option value="1h" selected="selected">last hour</option>
+ <option value="24h">last 24 hours</option>
+</select>
+</p>
+
+<canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
+Sorry, your browser does not support the canvas element!
+</canvas>
+
+<script>
+var globalRequestDuration = "";
+var readings = [0.0]; // TODO: rename because global, allow empty array?
+
+function myDurationChanged() {  
+  var s = document.getElementById("myDurationSelect");
+  globalRequestDuration = s.options[s.selectedIndex].value;
+  myOnLoad();
+}
+myDurationChanged();
+
+function myRedraw() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  ctx.beginPath();
+  ctx.strokeStyle = 'blue';
+  ctx.lineWidth = '5';
+  ctx.strokeRect(0, 0, c.width, c.height);
+
+  ctx.beginPath();
+  ctx.lineWidth = '1';
+  var scaleX = c.width * 1.0 / readings.length;
+  var maxY = 50;
+  var scaleY = c.height * 1.0 / maxY;
+
+  // Make grid
+  if (globalRequestDuration == "1h")
+  {
+    var divisionsX = 6;
+  }
+  else
+  {
+    var divisionsX = 24;
+  }
+  
+  var divisionsY = 5;
+  ctx.strokeStyle = "blue";
+  ctx.font="100% sans-serif";
+  for (var x = 0; x < divisionsX; x++)
+  {
+    ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
+    ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
+  }
+  for (var y = 0; y < divisionsY; y++)
+  {
+    ctx.moveTo(0, y * (c.height - 1) / divisionsY);
+    ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
+    ctx.strokeText(((divisionsY - y) * maxY / divisionsY).toFixed(1), 5, y * (c.height - 1) / divisionsY - 1);
+  }
+  ctx.stroke();
+
+  // draw curve
+  ctx.beginPath();
+  ctx.moveTo(0, c.height - scaleY * readings[0]);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = '2';
+  for (var i = 0; i < readings.length; i++) {
+    ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
+  }
+  ctx.stroke();
+}
+
+function myRefresh() {
+  var xmlhttp = new XMLHttpRequest();
+  var url = "readings_" + globalRequestDuration + ".js";
+  xmlhttp.onreadystatechange = function() {
+    var h = document.getElementById("myLastValue");
+    var d = document.getElementById("myLastUpdate");
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+      readings = myArr["readings"];
+
+      if (readings.length != 0)
+      {
+        h.innerHTML = readings[readings.length - 1].toFixed(2);
+        var today = new Date();
+        d.innerHTML = "" + today.getFullYear() + "-" + 
+                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
+                           String(today.getDate()).padStart(2, '0') + " " +
+                           String(today.getHours()).padStart(2, '0') + ":" +
+                           String(today.getMinutes()).padStart(2, '0') + ":" +
+                           String(today.getSeconds()).padStart(2, '0')
+      } else {
+        h.innerHTML = "UNAVAILABLE";
+      }
+      myRedraw();
+    }
+    else if (this.status == 404)
+    {
+      readings = [0.0]; // TODO: allow empty array?
+      h.innerHTML = "UNAVAILABLE";
+      d.innerHTML = "UNAVAILABLE";
+      myRedraw();
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myOnLoad() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  
+  initialize();
+
+  function initialize() {
+    window.addEventListener('resize', resizeCanvas, false);
+    resizeCanvas();
+    myRefresh();
+    setInterval(myRefresh, 10000);
+  }
+
+  // Runs each time the DOM window resize event fires.
+  // Resets the canvas dimensions to match window,
+  // then draws the new borders accordingly.
+  function resizeCanvas() {
+    var c = document.getElementById("myCanvas");
+    c.width = window.innerWidth - 50; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
+    c.height = window.innerHeight - 100; // TODO: either full size, or determine absolute size somehow
+    myRedraw();
+  }
+}
+</script>
+
+</body>
+
+</html>)rawliteral";
   server.send(200, "text/html", s);
 }
 
-void handleReadings()
+void handleReadings_1h()
 {
-  String s = "readings = [";
-  for (int i = 0; i < readings.size(); i++)
+  String s = "{\"readings\":[";
+  for (int i = 0; i < readings_1h.size(); i++)
   {
     if (i != 0) {
       s += ", ";
     }
-    String val(readings[i], 2);
+    String val(readings_1h[i], 2);
     s += val;
   }
-  s += "]\n";
+  s += "]}\n";
+  server.send(200, "application/javascript", s);
+}
+
+void handleReadings_24h()
+{
+  String s = "{\"readings\":[";
+  for (int i = 0; i < readings_24h.size(); i++)
+  {
+    if (i != 0) {
+      s += ", ";
+    }
+    String val(readings_24h[i], 2);
+    s += val;
+  }
+  s += "]}\n";
   server.send(200, "application/javascript", s);
 }
 
@@ -234,20 +313,14 @@ void setup()
   Serial.println( softApStartSuccess ? "Ready" : "Failed");
 
   server.on("/", handleRoot);
-  server.on("/readings.js", handleReadings);
+  server.on("/readings_1h.js", handleReadings_1h);
+  server.on("/readings_24h.js", handleReadings_24h);
   server.begin();
   Serial.print("Server listening on ");
   Serial.println(WiFi.softAPIP());
 
-  readings.fill(0.0f);
-/*  
-  readings[0] = 0;
-  readings[1] = 10;
-  readings[2] = 30;
-  readings[3] = 20;
-  readings[4] = 0;
-  readings[5] = 15;
-*/  
+  readings_1h.fill(0.0f);
+  readings_24h.fill(0.0f);
 
   Serial.print("Starting temperature sensor monitoring... ");
   sensors.begin(); // TODO: do we have a return status??
@@ -257,18 +330,25 @@ void setup()
 
 void loop()
 {
-  unsigned long startMillis = millis();
+  Serial.println("loop()");
+
+  sensors.requestTemperatures();
+  float temperatureCelcius = sensors.getTempCByIndex(0);
+  Serial.println(temperatureCelcius);
+      
+  unsigned long startMillis_1h = millis();
+  unsigned long startMillis_24h = startMillis_1h; // TODO: clean this up?
+
+  readings_1h.push_back_erase_if_full(temperatureCelcius);
+  readings_24h.push_back_erase_if_full(temperatureCelcius);
+
+  bool shouldRead1h = false;
+  bool shouldRead24h = false;
 
   while (true)
   {
     //Serial.printf("Stations connected = %d\n", WiFi.softAPgetStationNum());
     //delay(3000);
-  
-    sensors.requestTemperatures();
-    float temperatureCelcius = sensors.getTempCByIndex(0);
-    //float temperatureCelcius = 0.1f * random(0, 500);
-    readings.push_back_erase_if_full(temperatureCelcius);
-    Serial.println(temperatureCelcius);
   
     // While busy waiting for next reading - handle web requests
     do
@@ -278,9 +358,26 @@ void loop()
       //            Working combination is 500ms / reading + 10ms here. (ap most often there)
       //            Non-working combination is 500ms / reading + 1ms here (ap disapperas)
       //            Working rock stable: 1000ms / 20ms
+      shouldRead1h = (millis() - startMillis_1h) >= time_between_1h_readings_ms;
+      shouldRead24h = (millis() - startMillis_24h) >= time_between_24h_readings_ms;
     }
-    while (millis() - startMillis < time_between_readings_ms);
+    while (! (shouldRead1h || shouldRead24h));
+    
+    sensors.requestTemperatures();
+    float temperatureCelcius = sensors.getTempCByIndex(0); //float temperatureCelcius = 0.1f * random(0, 500);
+    Serial.println(temperatureCelcius);
+    
+    if (shouldRead1h) {
+      readings_1h.push_back_erase_if_full(temperatureCelcius);
+      startMillis_1h += time_between_1h_readings_ms;
+      shouldRead1h = false;
+    }
 
-    startMillis += time_between_readings_ms;
+    if (shouldRead24h) {
+      readings_24h.push_back_erase_if_full(temperatureCelcius);
+      startMillis_24h += time_between_24h_readings_ms;
+      shouldRead24h = false;
+    }
+      
   }
 }

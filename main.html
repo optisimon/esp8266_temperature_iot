@@ -1,49 +1,61 @@
 <html>
-
 <body onload="myOnLoad()">
-<H1 id="myHeader">Last Value: </H1>
+
+<p>Last Value: <span id="myLastValue"></span>.
+Last Update: <span id="myLastUpdate">No readings yet</span>.
+Trend for
+<select id="myDurationSelect" onchange="myDurationChanged()">
+ <option value="1h" selected="selected">last hour</option>
+ <option value="24h">last 24 hours</option>
+</select>
+</p>
+
 <canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
 Sorry, your browser does not support the canvas element!
 </canvas>
 
-<script src="readings.js"></script>
-
 <script>
-function myOnLoad() {
-  var h = document.getElementById("myHeader");
-  h.innerHTML = "Last value: " + readings[readings.length - 1].toFixed(2) +
-                ". Trend for last hour:";
-  var c = document.getElementById("myCanvas");
-  var ctx = c.getContext("2d");
+var globalRequestDuration = "";
+var readings = [0.0]; // TODO: rename because global, allow empty array?
 
-  initialize();
+function myDurationChanged() {  
+  var s = document.getElementById("myDurationSelect");
+  globalRequestDuration = s.options[s.selectedIndex].value;
+  myOnLoad();
+}
+myDurationChanged();
 
-  function initialize() {
-    window.addEventListener('resize', resizeCanvas, false);
-    resizeCanvas();
-    setInterval(refresh, 10000);
-  }
+function myRedraw() {
+	var c = document.getElementById("myCanvas");
+	var ctx = c.getContext("2d");
+	ctx.clearRect(0, 0, c.width, c.height);
 
-  function redraw() {
 	ctx.beginPath();
-    ctx.strokeStyle = 'blue';
-    ctx.lineWidth = '5';
-    ctx.strokeRect(0, 0, c.width, c.height);
+	ctx.strokeStyle = 'blue';
+	ctx.lineWidth = '5';
+	ctx.strokeRect(0, 0, c.width, c.height);
 
 	ctx.beginPath();
 	ctx.lineWidth = '1';
-    var scaleX = c.width * 1.0 / readings.length;
-    var maxY = 50;
-    var scaleY = c.height * 1.0 / maxY;
-    
-    
-    // Make grid
-    var divisionsX = 6;
-    var divisionsY = 5;
-    ctx.strokeStyle = "blue";
-    ctx.font="100% sans-serif";
-    for (var x = 0; x < divisionsX; x++)
-    {
+	var scaleX = c.width * 1.0 / readings.length;
+	var maxY = 50;
+	var scaleY = c.height * 1.0 / maxY;
+
+	// Make grid
+	if (globalRequestDuration == "1h")
+	{
+		var divisionsX = 6;
+	}
+	else
+	{
+		var divisionsX = 24;
+	}
+	
+	var divisionsY = 5;
+	ctx.strokeStyle = "blue";
+	ctx.font="100% sans-serif";
+	for (var x = 0; x < divisionsX; x++)
+	{
 		ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
 		ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
 	}
@@ -54,33 +66,77 @@ function myOnLoad() {
 		ctx.strokeText(((divisionsY - y) * maxY / divisionsY).toFixed(1), 5, y * (c.height - 1) / divisionsY - 1);
 	}
 	ctx.stroke();
-	
-	ctx.beginPath();
-    ctx.moveTo(0, c.height - scaleY * readings[0]);
-    ctx.strokeStyle = 'black';
-    ctx.lineWidth = '2';
-    for (var i = 0; i < readings.length; i++) {
-      ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
-    }
-    ctx.stroke();
-  }
 
-  function refresh() {
-   
-    // TODO: fetch new fetch new json object and redraw() without reload
-    //       https://www.w3schools.com/js/js_json_http.asp
-    location.reload(true);
+	// draw curve
+	ctx.beginPath();
+	ctx.moveTo(0, c.height - scaleY * readings[0]);
+	ctx.strokeStyle = 'black';
+	ctx.lineWidth = '2';
+	for (var i = 0; i < readings.length; i++) {
+	  ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
+	}
+	ctx.stroke();
+}
+
+function myRefresh() {
+	var xmlhttp = new XMLHttpRequest();
+	var url = "readings_" + globalRequestDuration + ".js";
+	xmlhttp.onreadystatechange = function() {
+		var h = document.getElementById("myLastValue");
+		var d = document.getElementById("myLastUpdate");
+		if (this.readyState == 4 && this.status == 200) {
+			var myArr = JSON.parse(this.responseText);
+			readings = myArr["readings"];
+
+			if (readings.length != 0)
+			{
+				h.innerHTML = readings[readings.length - 1].toFixed(2);
+				var today = new Date();
+				d.innerHTML = "" + today.getFullYear() + "-" + 
+				                   String(today.getMonth() + 1).padStart(2, '0') + "-" +
+				                   String(today.getDate()).padStart(2, '0') + " " +
+				                   String(today.getHours()).padStart(2, '0') + ":" +
+				                   String(today.getMinutes()).padStart(2, '0') + ":" +
+				                   String(today.getSeconds()).padStart(2, '0')
+			} else {
+				h.innerHTML = "UNAVAILABLE";
+			}
+			myRedraw();
+		}
+		else if (this.status == 404)
+		{
+			readings = [0.0]; // TODO: allow empty array?
+			h.innerHTML = "UNAVAILABLE";
+			d.innerHTML = "UNAVAILABLE";
+			myRedraw();
+		}
+	};
+	xmlhttp.open("GET", url, true);
+	xmlhttp.send();
+}
+
+function myOnLoad() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  
+  initialize();
+
+  function initialize() {
+    window.addEventListener('resize', resizeCanvas, false);
+    resizeCanvas();
+    myRefresh();
+    setInterval(myRefresh, 10000);
   }
 
   // Runs each time the DOM window resize event fires.
   // Resets the canvas dimensions to match window,
   // then draws the new borders accordingly.
   function resizeCanvas() {
+    var c = document.getElementById("myCanvas");
     c.width = window.innerWidth - 50; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
     c.height = window.innerHeight - 100; // TODO: either full size, or determine absolute size somehow
-    redraw();
+    myRedraw();
   }
-
 }
 </script>
 
