@@ -296,8 +296,8 @@ function myOnLoad() {
     c.width = 0;
     c.height = 0;
     
-    c.width = d.offsetWidth - 20; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
-    c.height = d.offsetHeight - 20; // TODO: either full size, or determine absolute size somehow
+    c.width = d.offsetWidth - 20;
+    c.height = d.offsetHeight - 20;
     myRedraw();
   }
 }
