@@ -9,6 +9,7 @@
 // TODO: Configure name of sensors (and store that permanently in the flash file system?
 // TODO: Cache results for json object ?
 // TODO: Support logging into an already available network either as an option, or when running as softAP)
+// TODO: break down sending of different sensors into separate calls to the web server (to be nicer on RAM). see https://github.com/esp8266/Arduino/issues/3205
 #include <DallasTemperature.h>
 
 #include <ESP8266WebServer.h>
@@ -118,8 +119,36 @@ private:
 
 ESP8266WebServer server(80);
 
-CircularBuffer<float, 360> readings_1h;
-CircularBuffer<float, 1440> readings_24h;
+struct Sensor {
+  int16_t index; // sensor index as determined by DallasTemperature class
+  DeviceAddress deviceAddress;
+  String id;
+  String name;
+  CircularBuffer<float, 360> readings_1h;
+  CircularBuffer<float, 1440> readings_24h;
+};
+
+int16_t numServedSensors = 0;
+Sensor servedSensors[2] = {{}, {}}; // internal compiler error if only '= {};'
+
+/*
+class RawTempToString {
+  struct Entry {
+    int16_t rawTemp;
+    char cachedRepresentation[8]; // enough to hold "-127.00" and null termination
+  }
+
+  static CircularBuffer<Entry, 16> cache; // TODO: start using this cache for conversions
+  
+  public:
+    static String convertToCelsius(int16_t raw) {
+      float deg = DallasTemperature::rawToCelsius(raw);
+      String ans(deg, 2);
+      return ans;
+    }
+
+}
+*/
 
 void handleRoot()
 {
@@ -332,37 +361,50 @@ function myOnLoad() {
   server.send_P(200, "text/html", s);
 }
 
+String getSensorStart(Sensor const & sensor) {
+  String s = "{\"id\":\"" + sensor.id + "\", \"name\":\"" + sensor.name + "\", \"readings\":[";
+  return s;
+}
+
 void handleSensors_1h()
 {
-  String s = R"rawliteral({"sensors":[{"id":")rawliteral";
-  s += deviceAddressToString(sensorAddress);
-  s += R"rawliteral(", "name":"Sensor0", "readings":[)rawliteral";
-  for (int i = 0; i < readings_1h.size(); i++)
+  String s = R"rawliteral({"sensors":[)rawliteral";
+  for (int k = 0; k < numServedSensors; k++)
   {
-    if (i != 0) {
-      s += ", ";
+    if (k != 0) { s += ", "; }
+    s += getSensorStart(servedSensors[k]);
+    for (int i = 0; i < servedSensors[k].readings_1h.size(); i++)
+    {
+      if (i != 0) {
+        s += ", ";
+      }
+      String val(servedSensors[k].readings_1h[i], 2);
+      s += val;
     }
-    String val(readings_1h[i], 2);
-    s += val;
+    s += "]}\n"; // sensor end
   }
-  s += "]}]}\n";
+  s += "]}\n";
   server.send(200, "application/javascript", s);
 }
 
 void handleSensors_24h()
 {
-  String s = R"rawliteral({"sensors":[{"id":")rawliteral";
-  s += deviceAddressToString(sensorAddress);
-  s += R"rawliteral(", "name":"Sensor0", "readings":[)rawliteral";
-  for (int i = 0; i < readings_24h.size(); i++)
+  String s = R"rawliteral({"sensors":[)rawliteral";
+  for (int k = 0; k < numServedSensors; k++)
   {
-    if (i != 0) {
-      s += ", ";
+    if (k != 0) { s += ", "; }
+    s += getSensorStart(servedSensors[k]);
+    for (int i = 0; i < servedSensors[k].readings_24h.size(); i++)
+    {
+      if (i != 0) {
+        s += ", ";
+      }
+      String val(servedSensors[k].readings_24h[i], 2);
+      s += val;
     }
-    String val(readings_24h[i], 2);
-    s += val;
+    s += "]}\n"; // sensor end
   }
-  s += "]}]}\n";
+  s += "]}\n";
   server.send(200, "application/javascript", s);
 }
 
@@ -390,14 +432,21 @@ void setup()
   Serial.print("Server listening on ");
   Serial.println(WiFi.softAPIP());
 
-  readings_1h.fill(0.0f);
-  readings_24h.fill(0.0f);
+  for (int i = 0; i < 2; i++)
+  {
+    servedSensors[i].readings_1h.fill(0.0f);
+    servedSensors[i].readings_24h.fill(0.0f);
+  }
 
   Serial.print("Starting temperature sensor monitoring... ");
   sensors.begin(); // TODO: do we have a return status??
   Serial.print(sensors.getDeviceCount());
   Serial.println(" devices found:");
-
+  numServedSensors = sensors.getDeviceCount();
+  if (numServedSensors > 2)
+  {
+    numServedSensors = 2;
+  }
   for (int i = 0; i < sensors.getDeviceCount(); i++)
   {
     DeviceAddress da = {};
@@ -419,6 +468,18 @@ void setup()
   
   // update sensorAddress to match the actually used sensor
   sensors.getAddress(sensorAddress, sensorIndex);
+
+  servedSensors[0].index = sensorIndex;
+  memcpy(servedSensors[0].deviceAddress, sensorAddress, 8);
+  servedSensors[0].id = deviceAddressToString(sensorAddress);
+  servedSensors[0].name = "Sensor" + String(0, DEC);
+
+  if (numServedSensors > 1) {
+    servedSensors[1].index = 1;
+    sensors.getAddress(servedSensors[1].deviceAddress, servedSensors[1].index);
+    servedSensors[1].id = deviceAddressToString(servedSensors[1].deviceAddress);
+    servedSensors[1].name = "Sensor" + String(servedSensors[1].index, DEC);
+  }
 }
 
 String deviceAddressToString(DeviceAddress const & da)
@@ -441,17 +502,24 @@ void loop()
   Serial.println("loop()");
 
   sensors.requestTemperatures();
-  float temperatureCelcius = sensors.getTempCByIndex(sensorIndex);
-  Serial.println(temperatureCelcius);
-      
-  unsigned long startMillis_1h = millis();
-  unsigned long startMillis_24h = startMillis_1h; // TODO: clean this up?
 
-  readings_1h.push_back_erase_if_full(temperatureCelcius);
-  readings_24h.push_back_erase_if_full(temperatureCelcius);
+  for (int16_t i = 0; i < numServedSensors; i++)
+  {
+    float temperatureCelcius = sensors.getTempC(servedSensors[i].deviceAddress);
+    Serial.print(temperatureCelcius);
+  
+    servedSensors[i].readings_1h.push_back_erase_if_full(temperatureCelcius);
+    servedSensors[i].readings_24h.push_back_erase_if_full(temperatureCelcius);
+  
+    Serial.print(" ");
+  }
+  Serial.println();
 
   bool shouldRead1h = false;
   bool shouldRead24h = false;
+
+  unsigned long startMillis_1h = millis();
+  unsigned long startMillis_24h = startMillis_1h; // TODO: clean this up?
 
   while (true)
   {
@@ -472,20 +540,30 @@ void loop()
     while (! (shouldRead1h || shouldRead24h));
     
     sensors.requestTemperatures();
-    float temperatureCelcius = sensors.getTempCByIndex(sensorIndex); //float temperatureCelcius = 0.1f * random(0, 500);
-    Serial.println(temperatureCelcius);
-    
+    for (int16_t i = 0; i < numServedSensors; i++)
+    {
+      float temperatureCelcius = sensors.getTempC(servedSensors[i].deviceAddress); //float temperatureCelcius = 0.1f * random(0, 500);
+      Serial.print(temperatureCelcius);
+      Serial.print(" ");
+      
+      if (shouldRead1h) {https://github.com/esp8266/Arduino/issues/3205
+        servedSensors[i].readings_1h.push_back_erase_if_full(temperatureCelcius);
+      }
+  
+      if (shouldRead24h) {
+        servedSensors[i].readings_24h.push_back_erase_if_full(temperatureCelcius);
+      }
+    }
+    Serial.println();
+
     if (shouldRead1h) {
-      readings_1h.push_back_erase_if_full(temperatureCelcius);
       startMillis_1h += time_between_1h_readings_ms;
       shouldRead1h = false;
     }
 
     if (shouldRead24h) {
-      readings_24h.push_back_erase_if_full(temperatureCelcius);
       startMillis_24h += time_between_24h_readings_ms;
       shouldRead24h = false;
     }
-      
   }
 }
