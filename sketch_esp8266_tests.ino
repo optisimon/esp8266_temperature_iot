@@ -132,7 +132,8 @@ void handleRoot()
   // and browse to 127.0.0.1:8000
   
   //String s = "<h1>Something is working! /sg</h1><p>Readings: ";
-  String s = R"rawliteral(
+  static const char s[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
 <html>
 <head>
 <style>
@@ -306,7 +307,7 @@ function myOnLoad() {
 
 </html>
 )rawliteral";
-  server.send(200, "text/html", s);
+  server.send_P(200, "text/html", s);
 }
 
 void handleReadings_1h()
