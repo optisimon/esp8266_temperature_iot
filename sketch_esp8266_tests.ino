@@ -118,20 +118,41 @@ void handleRoot()
   //String s = "<h1>Something is working! /sg</h1><p>Readings: ";
   String s = R"rawliteral(
 <html>
+<head>
+<style>
+body
+{
+  display:table;
+  width:100%;
+  height:100%;
+}
+div
+{
+  display:table-row;
+}
+div#canvasDiv
+{
+  height:100%;
+  padding:0px;
+}
+</style>
+</head>
 <body onload="myOnLoad()">
 
-<p>Last Value: <span id="myLastValue"></span>.
+<div>Last Value: <span id="myLastValue"></span>.
 Last Update: <span id="myLastUpdate">No readings yet</span>.
 Trend for
 <select id="myDurationSelect" onchange="myDurationChanged()">
  <option value="1h" selected="selected">last hour</option>
  <option value="24h">last 24 hours</option>
 </select>
-</p>
+</div>
 
+<div id="canvasDiv">
 <canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
 Sorry, your browser does not support the canvas element!
 </canvas>
+</div>
 
 <script>
 var globalRequestDuration = "";
@@ -251,9 +272,15 @@ function myOnLoad() {
   // Resets the canvas dimensions to match window,
   // then draws the new borders accordingly.
   function resizeCanvas() {
+  var d = document.getElementById("canvasDiv");
     var c = document.getElementById("myCanvas");
-    c.width = window.innerWidth - 50; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
-    c.height = window.innerHeight - 100; // TODO: either full size, or determine absolute size somehow
+
+    // Needed to let the div fill the remaining space without scrolling
+    c.width = 0;
+    c.height = 0;
+    
+    c.width = d.offsetWidth - 20; // TODO: https://stackoverflow.com/questions/1664785/resize-html5-canvas-to-fit-window
+    c.height = d.offsetHeight - 20; // TODO: either full size, or determine absolute size somehow
     myRedraw();
   }
 }
@@ -261,7 +288,8 @@ function myOnLoad() {
 
 </body>
 
-</html>)rawliteral";
+</html>
+)rawliteral";
   server.send(200, "text/html", s);
 }
 
