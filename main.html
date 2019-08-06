@@ -107,7 +107,7 @@ function myRefresh() {
     var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
       var myArr = JSON.parse(this.responseText);
-      readings = myArr["readings"];
+      readings = myArr["sensors"][0]["readings"];
 
       if (readings.length != 0)
       {

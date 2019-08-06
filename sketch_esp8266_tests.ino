@@ -133,7 +133,6 @@ void handleRoot()
   
   //String s = "<h1>Something is working! /sg</h1><p>Readings: ";
   static const char s[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
 <html>
 <head>
 <style>
@@ -243,7 +242,7 @@ function myRefresh() {
     var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
       var myArr = JSON.parse(this.responseText);
-      readings = myArr["readings"];
+      readings = myArr["sensors"][0]["readings"];
 
       if (readings.length != 0)
       {
@@ -291,7 +290,7 @@ function myOnLoad() {
   function resizeCanvas() {
   var d = document.getElementById("canvasDiv");
     var c = document.getElementById("myCanvas");
-
+    
     // Needed to let the div fill the remaining space without scrolling
     c.width = 0;
     c.height = 0;
@@ -312,7 +311,9 @@ function myOnLoad() {
 
 void handleReadings_1h()
 {
-  String s = "{\"readings\":[";
+  String s = R"rawliteral({"sensors":[{"id":")rawliteral";
+  s += deviceAddressToString(sensorAddress);
+  s += R"rawliteral(", "name":"Sensor0", "readings":[)rawliteral";
   for (int i = 0; i < readings_1h.size(); i++)
   {
     if (i != 0) {
@@ -321,13 +322,15 @@ void handleReadings_1h()
     String val(readings_1h[i], 2);
     s += val;
   }
-  s += "]}\n";
+  s += "]}]}\n";
   server.send(200, "application/javascript", s);
 }
 
 void handleReadings_24h()
 {
-  String s = "{\"readings\":[";
+  String s = R"rawliteral({"sensors":[{"id":")rawliteral";
+  s += deviceAddressToString(sensorAddress);
+  s += R"rawliteral(", "name":"Sensor0", "readings":[)rawliteral";
   for (int i = 0; i < readings_24h.size(); i++)
   {
     if (i != 0) {
@@ -336,7 +339,7 @@ void handleReadings_24h()
     String val(readings_24h[i], 2);
     s += val;
   }
-  s += "]}\n";
+  s += "]}]}\n";
   server.send(200, "application/javascript", s);
 }
 
@@ -387,16 +390,27 @@ void setup()
     DeviceAddress da = {};
     sensors.getAddress(da, i);
     Serial.print("    0x");
-    for (int j = 0; j < 8; j++)
-    {
-      if (da[j] < 10)
-      {
-        Serial.print("0");
-      }
-      Serial.print(da[j], HEX);
-    }
+    Serial.print(deviceAddressToString(da));
     Serial.println( i == sensorIndex ? " <-- will be used":"");
   }
+  
+  // update sensorAddress to match the actually used sensor
+  sensors.getAddress(sensorAddress, sensorIndex);
+}
+
+String deviceAddressToString(DeviceAddress const & da)
+{
+  String s;
+  for (int j = 0; j < 8; j++)
+  {
+    String add(da[j], HEX);
+    if (add.length() == 1)
+    {
+      s += "0";
+    }
+    s += add;
+  }
+  return s;
 }
 
 void loop()
