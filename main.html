@@ -17,6 +17,7 @@ div#canvasDiv
   padding:0px;
 }
 </style>
+<title>TempViewer</title>
 </head>
 <body onload="myOnLoad()">
 
@@ -37,7 +38,7 @@ Sorry, your browser does not support the canvas element!
 
 <script>
 var globalRequestDuration = "";
-var readings = [0.0]; // TODO: rename because global, allow empty array?
+var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
 function myDurationChanged() {  
   var s = document.getElementById("myDurationSelect");
@@ -58,7 +59,7 @@ function myRedraw() {
 
   ctx.beginPath();
   ctx.lineWidth = '1';
-  var scaleX = c.width * 1.0 / readings.length;
+  var scaleX = c.width * 1.0 / sensors[0]["readings"].length;
   var maxY = 50;
   var scaleY = c.height * 1.0 / maxY;
 
@@ -74,44 +75,66 @@ function myRedraw() {
   
   var divisionsY = 5;
   ctx.strokeStyle = "blue";
+  ctx.fillStyle = ctx.strokeStyle;
   ctx.font="100% sans-serif";
   for (var x = 0; x < divisionsX; x++)
   {
     ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
     ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
   }
+  var rightOfYValues = 5;
   for (var y = 0; y < divisionsY; y++)
   {
     ctx.moveTo(0, y * (c.height - 1) / divisionsY);
     ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
-    ctx.strokeText(((divisionsY - y) * maxY / divisionsY).toFixed(1), 5, y * (c.height - 1) / divisionsY - 1);
+    var txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
+    ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
+    rightOfYValues = Math.max(rightOfYValues, ctx.measureText(txt).width + 5 + 5);
   }
   ctx.stroke();
 
   // draw curve
-  ctx.beginPath();
-  ctx.moveTo(0, c.height - scaleY * readings[0]);
-  ctx.strokeStyle = 'black';
-  ctx.lineWidth = '2';
-  for (var i = 0; i < readings.length; i++) {
-    ctx.lineTo(i * scaleX, c.height - scaleY * readings[i]);
+  for (var sensor = 0; sensor < sensors.length; sensor++)
+  {
+	  ctx.beginPath();
+	  ctx.moveTo(0, c.height - scaleY * sensors[sensor]["readings"][0]);
+	  if (sensor == 0)
+		ctx.strokeStyle = 'black';
+	  else if (sensor == 1)
+		ctx.strokeStyle = 'red';
+	  else if (sensor == 2)
+		ctx.strokeStyle = 'green';
+	  else
+		ctx.strokeStyle = 'gray'; // TODO: support more curves?
+	  ctx.fillStyle = ctx.strokeStyle;
+		
+	  ctx.lineWidth = '2';
+	  for (var i = 0; i < sensors[sensor]["readings"].length; i++) {
+		ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
+	  }
+	  
+	  ctx.fillRect(rightOfYValues, (sensor + 1) * 20, 10, 10)
+	  ctx.textBaseline = 'middle';
+	  ctx.fillText(sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")",
+	               rightOfYValues + 15, 5 + (sensor + 1) * 20); // TODO: get font height ?
+	  ctx.textBaseline = 'alphabetic';
+	  ctx.stroke();
   }
-  ctx.stroke();
 }
 
 function myRefresh() {
   var xmlhttp = new XMLHttpRequest();
-  var url = "readings_" + globalRequestDuration + ".js";
+  var url = "sensors_" + globalRequestDuration + ".js";
   xmlhttp.onreadystatechange = function() {
     var h = document.getElementById("myLastValue");
     var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
       var myArr = JSON.parse(this.responseText);
-      readings = myArr["sensors"][0]["readings"];
+      sensors = myArr["sensors"];
 
-      if (readings.length != 0)
+      if (sensors[0]["readings"].length != 0)
       {
-        h.innerHTML = readings[readings.length - 1].toFixed(2);
+        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
         var today = new Date();
         d.innerHTML = "" + today.getFullYear() + "-" + 
                            String(today.getMonth() + 1).padStart(2, '0') + "-" +
@@ -126,7 +149,7 @@ function myRefresh() {
     }
     else if (this.status == 404)
     {
-      readings = [0.0]; // TODO: allow empty array?
+      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
       h.innerHTML = "UNAVAILABLE";
       d.innerHTML = "UNAVAILABLE";
       myRedraw();
@@ -156,7 +179,7 @@ function myOnLoad() {
 	var d = document.getElementById("canvasDiv");
     var c = document.getElementById("myCanvas");
     
-    // Needed to let the div fill the remaining space without scrolling
+    // Needed to let the canvasDiv div fill the remaining space without scrolling
     c.width = 0;
     c.height = 0;
     
