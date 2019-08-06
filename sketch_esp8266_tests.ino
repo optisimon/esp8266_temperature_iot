@@ -1,3 +1,14 @@
+// Scan for other access points:
+// https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/scan-class.html
+
+// softAP and station mode simultaneously
+// https://github.com/esp8266/Arduino/issues/119#issuecomment-157418957
+// https://stackoverflow.com/questions/47345141/esp8266-wifi-ap-sta-mode
+
+// TODO: Report values for multiple sensors? (might be limited by RAM)?
+// TODO: Configure name of sensors (and store that permanently in the flash file system?
+// TODO: Cache results for json object ?
+// TODO: Support logging into an already available network either as an option, or when running as softAP)
 #include <DallasTemperature.h>
 
 #include <ESP8266WebServer.h>
@@ -10,6 +21,11 @@ const int oneWireBus = 4; // D2 is the same as gpio4 on my board...
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
 
+// Address for temperature sensor to use (if no sensor matches this at boot, first sensor will be used).
+DeviceAddress sensorAddress = {0x28,0xff,0xba,0xa4,0x64,0x14,0x03,0x13};
+
+// Index of temperature sensor to use (will be updated at boot)
+int sensorIndex = 0;
 
 IPAddress local_IP(192,168,1,1);
 IPAddress gateway(192,168,1,1);
@@ -353,7 +369,33 @@ void setup()
   Serial.print("Starting temperature sensor monitoring... ");
   sensors.begin(); // TODO: do we have a return status??
   Serial.print(sensors.getDeviceCount());
-  Serial.println(" devices found");
+  Serial.println(" devices found:");
+
+  for (int i = 0; i < sensors.getDeviceCount(); i++)
+  {
+    DeviceAddress da = {};
+    sensors.getAddress(da, i);
+    if (memcmp(da, sensorAddress, 8) == 0)
+    {
+      sensorIndex = i;
+    }
+  }
+
+  for (int i = 0; i < sensors.getDeviceCount(); i++)
+  {
+    DeviceAddress da = {};
+    sensors.getAddress(da, i);
+    Serial.print("    0x");
+    for (int j = 0; j < 8; j++)
+    {
+      if (da[j] < 10)
+      {
+        Serial.print("0");
+      }
+      Serial.print(da[j], HEX);
+    }
+    Serial.println( i == sensorIndex ? " <-- will be used":"");
+  }
 }
 
 void loop()
@@ -361,7 +403,7 @@ void loop()
   Serial.println("loop()");
 
   sensors.requestTemperatures();
-  float temperatureCelcius = sensors.getTempCByIndex(0);
+  float temperatureCelcius = sensors.getTempCByIndex(sensorIndex);
   Serial.println(temperatureCelcius);
       
   unsigned long startMillis_1h = millis();
@@ -392,7 +434,7 @@ void loop()
     while (! (shouldRead1h || shouldRead24h));
     
     sensors.requestTemperatures();
-    float temperatureCelcius = sensors.getTempCByIndex(0); //float temperatureCelcius = 0.1f * random(0, 500);
+    float temperatureCelcius = sensors.getTempCByIndex(sensorIndex); //float temperatureCelcius = 0.1f * random(0, 500);
     Serial.println(temperatureCelcius);
     
     if (shouldRead1h) {
