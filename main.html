@@ -28,6 +28,7 @@ Trend for
  <option value="1h" selected="selected">last hour</option>
  <option value="24h">last 24 hours</option>
 </select>
+<button onclick="window.location.href='settings.html'" style="position: absolute; right: 0;">Settings</button>
 </div>
 
 <div id="canvasDiv">
@@ -176,7 +177,7 @@ function myOnLoad() {
   // Resets the canvas dimensions to match window,
   // then draws the new borders accordingly.
   function resizeCanvas() {
-	var d = document.getElementById("canvasDiv");
+    var d = document.getElementById("canvasDiv");
     var c = document.getElementById("myCanvas");
     
     // Needed to let the canvasDiv div fill the remaining space without scrolling

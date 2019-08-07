@@ -1,0 +1,126 @@
+<html>
+<head>
+<title>TempViewer - Settings</title>
+</head>
+<body onload="myOnLoad()">
+
+<div>
+Settings
+
+<button onclick="window.location.href='main.html'" style="position: absolute; right: 0;">Values</button>
+
+</div>
+
+<div id="settings">
+<fieldset>
+	<legend>Waiting for sensors:</legend>
+</fieldset>
+</div>
+
+<script>
+
+// TODO: remove this?
+var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+
+function renameSensor(sensorId, sensorName) {
+	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
+	myPatch("sensors/" + sensorId, { "name": newName });
+}
+
+function myPatch(url, data)
+{
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			myRefresh();
+		}
+		else if (this.readyState == 4)
+		{
+			console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
+			myRefresh();
+		}
+	}
+	
+	xmlhttp.open("PATCH", url, true);
+	xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+	xmlhttp.send(JSON.stringify(data));
+}
+
+function handleClick(checkbox) {
+	myPatch("sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
+	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
+}
+
+function myRefresh()
+{
+  var xmlhttp = new XMLHttpRequest();
+  var url = "sensors";
+  xmlhttp.onreadystatechange = function() {
+    var h = document.getElementById("myLastValue");
+    var d = document.getElementById("myLastUpdate");
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+      sensors = myArr["sensors"];
+      
+      var s = document.getElementById("settings")
+      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n';
+      for (var i = 0; i < sensors.length; i++)
+      {
+		str += '<div>\n<input type="checkbox" id="'  + sensors[i].id + 
+		'" name="' + sensors[i].name + '"' +
+		' onclick="handleClick(this);" ' +
+		(sensors[i].active ? 'checked>' : '>') + 
+		'<label for="' + sensors[i].id + '">' +
+		sensors[i].name + ': ' + 'id=' + sensors[i].id + ', last value='  +
+		sensors[i].lastValue.toFixed(2) + '</label>';
+		
+		str += '<button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button>';
+		
+		str += '</div>\n';
+	  }
+	  str += '</fieldset>\n';
+	  s.innerHTML = str;
+	  
+/*
+      if (sensors[0]["readings"].length != 0)
+      {
+        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
+        var today = new Date();
+        d.innerHTML = "" + today.getFullYear() + "-" + 
+                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
+                           String(today.getDate()).padStart(2, '0') + " " +
+                           String(today.getHours()).padStart(2, '0') + ":" +
+                           String(today.getMinutes()).padStart(2, '0') + ":" +
+                           String(today.getSeconds()).padStart(2, '0')
+      } else {
+        h.innerHTML = "UNAVAILABLE";
+      }
+      */
+    }
+    else if (this.status == 404)
+    {
+      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+      h.innerHTML = "UNAVAILABLE";
+      d.innerHTML = "UNAVAILABLE";
+      myRedraw();
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myOnLoad() {
+  var c = document.getElementById("settings");
+  
+  initialize();
+
+  function initialize() {
+    myRefresh();
+    setInterval(myRefresh, 100000); // used to be 10000
+  }
+}
+</script>
+
+</body>
+
+</html>
