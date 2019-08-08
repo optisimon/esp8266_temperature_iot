@@ -65,8 +65,7 @@ function myRefresh()
   var xmlhttp = new XMLHttpRequest();
   var url = "sensors";
   xmlhttp.onreadystatechange = function() {
-    var h = document.getElementById("myLastValue");
-    var d = document.getElementById("myLastUpdate");
+    //var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
       var myArr = JSON.parse(this.responseText);
       sensors = myArr["sensors"];
@@ -99,9 +98,8 @@ function myRefresh()
 	  s.innerHTML = str;
 	  
 /*
-      if (sensors[0]["readings"].length != 0)
+      if (sensors.length != 0)
       {
-        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
         var today = new Date();
         d.innerHTML = "" + today.getFullYear() + "-" + 
                            String(today.getMonth() + 1).padStart(2, '0') + "-" +
@@ -117,8 +115,8 @@ function myRefresh()
     else if (this.status == 404)
     {
       sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-      h.innerHTML = "UNAVAILABLE";
-      d.innerHTML = "UNAVAILABLE";
+      var s = document.getElementById("settings");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p>";
       myRedraw();
     }
   };
