@@ -1,6 +1,16 @@
 <html>
 <head>
 <title>TempViewer - Settings</title>
+<style>
+table, th, td {
+	border: 1px solid black;
+	border-collapse: collapse;
+}
+th, td {
+	padding-left: 5px;
+	padding-right: 5px;
+}
+</style>
 </head>
 <body onload="myOnLoad()">
 
@@ -16,7 +26,6 @@ Settings
 	<legend>Waiting for sensors:</legend>
 </fieldset>
 </div>
-
 <script>
 
 // TODO: remove this?
@@ -62,23 +71,31 @@ function myRefresh()
       var myArr = JSON.parse(this.responseText);
       sensors = myArr["sensors"];
       
+      function wrapSelectingCheckbox(str, i) {
+		  return '<label for="' + sensors[i].id + '">' + str + '</label>';
+	  }
+      
       var s = document.getElementById("settings")
-      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n';
+      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n<table>\n' +
+      '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
       for (var i = 0; i < sensors.length; i++)
       {
-		str += '<div>\n<input type="checkbox" id="'  + sensors[i].id + 
+		str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
 		'" name="' + sensors[i].name + '"' +
 		' onclick="handleClick(this);" ' +
-		(sensors[i].active ? 'checked>' : '>') + 
-		'<label for="' + sensors[i].id + '">' +
-		sensors[i].name + ': ' + 'id=' + sensors[i].id + ', last value='  +
-		sensors[i].lastValue.toFixed(2) + '</label>';
+		(sensors[i].active ? 'checked>' : '>') + '</td>' +
 		
-		str += '<button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button>';
+		'<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
 		
-		str += '</div>\n';
+		'<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
+		
+		'<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
+		
+		str += '</tr>\n';
 	  }
-	  str += '</fieldset>\n';
+	  str += '</table>\n</fieldset>\n';
 	  s.innerHTML = str;
 	  
 /*

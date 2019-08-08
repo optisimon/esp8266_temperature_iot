@@ -202,6 +202,16 @@ void handleSettings()
 <html>
 <head>
 <title>TempViewer - Settings</title>
+<style>
+table, th, td {
+	border: 1px solid black;
+	border-collapse: collapse;
+}
+th, td {
+	padding-left: 5px;
+	padding-right: 5px;
+}
+</style>
 </head>
 <body onload="myOnLoad()">
 
@@ -214,42 +224,41 @@ Settings
 
 <div id="settings">
 <fieldset>
-  <legend>Waiting for sensors:</legend>
+	<legend>Waiting for sensors:</legend>
 </fieldset>
 </div>
-
 <script>
 
 // TODO: remove this?
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
 function renameSensor(sensorId, sensorName) {
-  var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
-  myPatch("sensors/" + sensorId, { "name": newName });
+	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
+	myPatch("sensors/" + sensorId, { "name": newName });
 }
 
 function myPatch(url, data)
 {
-  var xmlhttp = new XMLHttpRequest();
-  xmlhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200) {
-      myRefresh();
-    }
-    else if (this.readyState == 4)
-    {
-      console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
-      myRefresh();
-    }
-  }
-  
-  xmlhttp.open("PATCH", url, true);
-  xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-  xmlhttp.send(JSON.stringify(data));
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			myRefresh();
+		}
+		else if (this.readyState == 4)
+		{
+			console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
+			myRefresh();
+		}
+	}
+	
+	xmlhttp.open("PATCH", url, true);
+	xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+	xmlhttp.send(JSON.stringify(data));
 }
 
 function handleClick(checkbox) {
-  myPatch("sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
-  console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
+	myPatch("sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
+	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
 }
 
 function myRefresh()
@@ -263,25 +272,33 @@ function myRefresh()
       var myArr = JSON.parse(this.responseText);
       sensors = myArr["sensors"];
       
+      function wrapSelectingCheckbox(str, i) {
+		  return '<label for="' + sensors[i].id + '">' + str + '</label>';
+	  }
+      
       var s = document.getElementById("settings")
-      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n';
+      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n<table>\n' +
+      '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
       for (var i = 0; i < sensors.length; i++)
       {
-    str += '<div>\n<input type="checkbox" id="'  + sensors[i].id + 
-    '" name="' + sensors[i].name + '"' +
-    ' onclick="handleClick(this);" ' +
-    (sensors[i].active ? 'checked>' : '>') + 
-    '<label for="' + sensors[i].id + '">' +
-    sensors[i].name + ': ' + 'id=' + sensors[i].id + ', last value='  +
-    sensors[i].lastValue.toFixed(2) + '</label>';
-    
-    str += '<button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button>';
-    
-    str += '</div>\n';
-    }
-    str += '</fieldset>\n';
-    s.innerHTML = str;
-    
+		str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
+		'" name="' + sensors[i].name + '"' +
+		' onclick="handleClick(this);" ' +
+		(sensors[i].active ? 'checked>' : '>') + '</td>' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
+		
+		'<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
+		
+		str += '</tr>\n';
+	  }
+	  str += '</table>\n</fieldset>\n';
+	  s.innerHTML = str;
+	  
 /*
       if (sensors[0]["readings"].length != 0)
       {
