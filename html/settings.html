@@ -33,7 +33,7 @@ var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ]
 
 function renameSensor(sensorId, sensorName) {
 	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
-	myPatch("sensors/" + sensorId, { "name": newName });
+	myPatch("api/sensors/" + sensorId, { "name": newName });
 }
 
 function myPatch(url, data)
@@ -56,14 +56,14 @@ function myPatch(url, data)
 }
 
 function handleClick(checkbox) {
-	myPatch("sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
+	myPatch("api/sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
 	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
 }
 
 function myRefresh()
 {
   var xmlhttp = new XMLHttpRequest();
-  var url = "sensors";
+  var url = "api/sensors";
   xmlhttp.onreadystatechange = function() {
     //var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
@@ -124,9 +124,8 @@ function myRefresh()
   xmlhttp.send();
 }
 
-function myOnLoad() {
-  var c = document.getElementById("settings");
-  
+function myOnLoad()
+{
   initialize();
 
   function initialize() {
@@ -137,5 +136,4 @@ function myOnLoad() {
 </script>
 
 </body>
-
 </html>

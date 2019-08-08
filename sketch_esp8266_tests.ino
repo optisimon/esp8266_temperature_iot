@@ -204,12 +204,12 @@ void handleSettings()
 <title>TempViewer - Settings</title>
 <style>
 table, th, td {
-	border: 1px solid black;
-	border-collapse: collapse;
+  border: 1px solid black;
+  border-collapse: collapse;
 }
 th, td {
-	padding-left: 5px;
-	padding-right: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
 }
 </style>
 </head>
@@ -224,7 +224,7 @@ Settings
 
 <div id="settings">
 <fieldset>
-	<legend>Waiting for sensors:</legend>
+  <legend>Waiting for sensors:</legend>
 </fieldset>
 </div>
 <script>
@@ -233,76 +233,74 @@ Settings
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
 function renameSensor(sensorId, sensorName) {
-	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
-	myPatch("sensors/" + sensorId, { "name": newName });
+  var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
+  myPatch("api/sensors/" + sensorId, { "name": newName });
 }
 
 function myPatch(url, data)
 {
-	var xmlhttp = new XMLHttpRequest();
-	xmlhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			myRefresh();
-		}
-		else if (this.readyState == 4)
-		{
-			console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
-			myRefresh();
-		}
-	}
-	
-	xmlhttp.open("PATCH", url, true);
-	xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-	xmlhttp.send(JSON.stringify(data));
+  var xmlhttp = new XMLHttpRequest();
+  xmlhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+      myRefresh();
+    }
+    else if (this.readyState == 4)
+    {
+      console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
+      myRefresh();
+    }
+  }
+  
+  xmlhttp.open("PATCH", url, true);
+  xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+  xmlhttp.send(JSON.stringify(data));
 }
 
 function handleClick(checkbox) {
-	myPatch("sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
-	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
+  myPatch("api/sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
+  console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
 }
 
 function myRefresh()
 {
   var xmlhttp = new XMLHttpRequest();
-  var url = "sensors";
+  var url = "api/sensors";
   xmlhttp.onreadystatechange = function() {
-    var h = document.getElementById("myLastValue");
-    var d = document.getElementById("myLastUpdate");
+    //var d = document.getElementById("myLastUpdate");
     if (this.readyState == 4 && this.status == 200) {
       var myArr = JSON.parse(this.responseText);
       sensors = myArr["sensors"];
       
       function wrapSelectingCheckbox(str, i) {
-		  return '<label for="' + sensors[i].id + '">' + str + '</label>';
-	  }
+      return '<label for="' + sensors[i].id + '">' + str + '</label>';
+    }
       
       var s = document.getElementById("settings")
       var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n<table>\n' +
       '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
       for (var i = 0; i < sensors.length; i++)
       {
-		str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
-		'" name="' + sensors[i].name + '"' +
-		' onclick="handleClick(this);" ' +
-		(sensors[i].active ? 'checked>' : '>') + '</td>' +
-		
-		'<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
-		
-		'<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
-		
-		'<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
-		
-		'<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
-		
-		str += '</tr>\n';
-	  }
-	  str += '</table>\n</fieldset>\n';
-	  s.innerHTML = str;
-	  
+    str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
+    '" name="' + sensors[i].name + '"' +
+    ' onclick="handleClick(this);" ' +
+    (sensors[i].active ? 'checked>' : '>') + '</td>' +
+    
+    '<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
+    
+    '<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
+    
+    '<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
+    
+    '<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
+    
+    str += '</tr>\n';
+    }
+    str += '</table>\n</fieldset>\n';
+    s.innerHTML = str;
+    
 /*
-      if (sensors[0]["readings"].length != 0)
+      if (sensors.length != 0)
       {
-        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
         var today = new Date();
         d.innerHTML = "" + today.getFullYear() + "-" + 
                            String(today.getMonth() + 1).padStart(2, '0') + "-" +
@@ -318,8 +316,8 @@ function myRefresh()
     else if (this.status == 404)
     {
       sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-      h.innerHTML = "UNAVAILABLE";
-      d.innerHTML = "UNAVAILABLE";
+      var s = document.getElementById("settings");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p>";
       myRedraw();
     }
   };
@@ -327,9 +325,8 @@ function myRefresh()
   xmlhttp.send();
 }
 
-function myOnLoad() {
-  var c = document.getElementById("settings");
-  
+function myOnLoad()
+{
   initialize();
 
   function initialize() {
@@ -340,7 +337,6 @@ function myOnLoad() {
 </script>
 
 </body>
-
 </html>
 )rawliteral";
   server.send_P(200, "text/html", s);
@@ -487,7 +483,7 @@ function myRedraw() {
 
 function myRefresh() {
   var xmlhttp = new XMLHttpRequest();
-  var url = "sensors_" + globalRequestDuration + ".js";
+  var url = "api/readings/" + globalRequestDuration;
   xmlhttp.onreadystatechange = function() {
     var h = document.getElementById("myLastValue");
     var d = document.getElementById("myLastUpdate");
@@ -539,7 +535,7 @@ function myOnLoad() {
   // Resets the canvas dimensions to match window,
   // then draws the new borders accordingly.
   function resizeCanvas() {
-  var d = document.getElementById("canvasDiv");
+    var d = document.getElementById("canvasDiv");
     var c = document.getElementById("myCanvas");
     
     // Needed to let the canvasDiv div fill the remaining space without scrolling
@@ -568,9 +564,9 @@ String getSensorStart(int allSensorsIndex) {
 
 void handleNotFound()
 {
-  if (server.uri().startsWith("/sensors/"))
+  if (server.uri().startsWith("/api/sensors/"))
   {
-    String id = server.uri().substring(9);
+    String id = server.uri().substring(13);
     if (id.length() == 16)
     {
       //DeviceAddress da;
@@ -723,10 +719,10 @@ void setup()
   server.on("/", handleRoot);
   server.on("/main.html", handleRoot);
   server.on("/settings.html", handleSettings);
-  server.on("/sensors", handleSensors);
-  server.on("/sensors/", handleSensors);
-  server.on("/sensors_1h.js", handleSensors_1h);
-  server.on("/sensors_24h.js", handleSensors_24h);
+  server.on("/api/sensors", handleSensors);
+  server.on("/api/sensors/", handleSensors);
+  server.on("/api/readings/1h", handleSensors_1h);
+  server.on("/api/readings/24h", handleSensors_24h);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.print("Server listening on ");

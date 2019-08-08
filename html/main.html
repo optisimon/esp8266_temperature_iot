@@ -125,7 +125,7 @@ function myRedraw() {
 
 function myRefresh() {
   var xmlhttp = new XMLHttpRequest();
-  var url = "sensors_" + globalRequestDuration + ".js";
+  var url = "api/readings/" + globalRequestDuration;
   xmlhttp.onreadystatechange = function() {
     var h = document.getElementById("myLastValue");
     var d = document.getElementById("myLastUpdate");
