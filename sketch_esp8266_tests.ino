@@ -5,6 +5,17 @@
 // https://github.com/esp8266/Arduino/issues/119#issuecomment-157418957
 // https://stackoverflow.com/questions/47345141/esp8266-wifi-ap-sta-mode
 
+// Sending replies using multiple calls to the web server (to preserve RAM):
+// https://github.com/esp8266/Arduino/issues/3205
+
+
+// SPIFFS
+// https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
+// https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
+//https://github.com/pellepl/spiffs/wiki/FAQ
+
+// TODO: split program up (include .h and .cpp-files into the sketch, but edit elsewhere?)
+
 // TODO: Report values for multiple sensors? (might be limited by RAM)?
 // TODO: store name of sensors permanently in the flash file system?
 // TODO: store sensors to view in flash filesystem + make them easy to select?
@@ -16,6 +27,7 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ArduinoJson.h>
+#include "FS.h"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
 const unsigned long time_between_24h_readings_ms = 60000UL;
@@ -29,14 +41,237 @@ DeviceAddress sensorAddress = {0x28,0xff,0xba,0xa4,0x64,0x14,0x03,0x13};
 // Index of temperature sensor to use (will be updated at boot)
 int sensorIndex = 0;
 
-IPAddress local_IP(192,168,1,1);
-IPAddress gateway(192,168,1,1);
-IPAddress subnet(255,255,255,0);
+/** 
+ *  Set ip adress only for valid IP adresses (no change of ip for invalid input).
+ *  @return true if str was a valid IP address and was stored into ip.
+ *  
+ */
+bool onlySetIpIfValid(String const & str, IPAddress &ip)
+{
+  IPAddress next;
+  bool isValid = next.fromString(str);
+  if (isValid) {
+    ip = next;
+  }
+  return isValid;
+}
 
-const char* SSID = "TestAP";
-const char* password = "testtest"; // Password needs to be at least 8 characters
+struct ConfigSoftAP
+{
+  ConfigSoftAP() : 
+    _ip(192,168,1,1),
+    _gateway(192,168,1,1),
+    _subnet(255,255,255,0),
+    _ssid{"TestAP"},
+    _password{"testtest"},
+    _modified(false)
+  { /* no code */ }
+
+  IPAddress const & getIp() const { return _ip; }
+  bool setIp(String const & newIP) { return setIpIfValid(newIP, _ip); }
+
+  IPAddress const & getGateway() const { return _gateway; }
+  bool setGateway(String const & newIP) { return setIpIfValid(newIP, _gateway); }
+
+  IPAddress const & getSubnet() const { return _subnet; }
+  bool setSubnet(String const & newIP) { return setIpIfValid(newIP, _subnet); }
+
+  const char* getSsid() const { return _ssid; }
+  bool setSsid(String const & str)
+  {
+    if (str.length() < 1 || str.length() >= sizeof(_ssid))
+    {
+      return false;
+    }
+    strncpy(_ssid, str.c_str(), sizeof(_ssid));
+    _modified = true;
+    return true;
+  }
+
+  const char* getPassword() const { return _password; }
+  bool setPassword(String const & str)
+  {
+    if (str.length() >= sizeof(_password))
+    {
+      return false;
+    }
+    strncpy(_password, str.c_str(), sizeof(_password));
+    _modified = true;
+    return true;
+  }
+
+  bool isModified() const { return _modified; };
+
+  /** Save values to flash */
+  bool save()
+  {
+    String ip = _ip.toString();
+    String gateway = _gateway.toString();
+    String subnet = _subnet.toString();
+    
+    StaticJsonDocument<512> json;
+    json["ssid"] = _ssid;
+    json["password"] = _password;
+    json["ip"] = ip.c_str();
+    json["gateway"] = gateway.c_str();
+    json["subnet"] = subnet.c_str();
+
+    char response[512] = {};
+    size_t toWrite = serializeJson(json, response, sizeof(response));
+
+    if (!toWrite || toWrite >= sizeof(response))
+    {
+      Serial.println("too much");
+      return false; 
+    }
+
+//    Serial.print("Writing: ");
+//    Serial.println(response);
+
+    File configFile = SPIFFS.open("/config/wifi/softap", "w");
+    if (!configFile) {
+      Serial.println("file open failed");
+      return false;
+    }
+
+    size_t written = configFile.println(response);
+    if (!written) {
+      Serial.println("not written");
+      configFile.close();
+      return false;
+    }
+    configFile.close();
+
+    _modified = false;
+    return true;
+  }
+
+  /** Load values from flash */
+  bool load()
+  {
+    File configFile = SPIFFS.open("/config/wifi/softap", "r");
+    if (!configFile) {
+      Serial.println("not found");
+      return false;
+    }
+  
+    size_t size = configFile.size();
+    if (size > 1024) {
+      Serial.println("too large");
+      return false;
+    }
+  
+    std::unique_ptr<char[]> buf(new char[size]);
+    configFile.readBytes(buf.get(), size);
+    configFile.close();
+  
+    StaticJsonDocument<512> json;
+    DeserializationError error = deserializeJson(json, buf.get());
+    if (error) {
+      Serial.println("deserialize fail");
+      return false;
+    }
+    char const* keys[] = {"ip", "gateway", "subnet", "ssid", "password", nullptr};
+    char const** it = keys;
+    while (*it) {
+      if (!json.containsKey(*it)) {
+        Serial.printf("missing key %s", *it);
+        return false;
+      }
+      it++;
+    }
+
+    ConfigSoftAP next;
+    if (next.setIp(json["ip"]) &&
+        next.setGateway(json["gateway"]) &&
+        next.setSubnet(json["subnet"]) &&
+        next.setSsid(json["ssid"]) &&
+        next.setPassword(json["password"]))
+    {
+      next._modified = false;
+      *this = next;
+      return true;
+    }
+    Serial.println("malformed?");
+    return false;
+  }
+
+  /** Update zero or more elements provided in json input
+      @return true if validation OK and data (if any) updated. On error, no fields are updated
+   */
+  bool patch(char const * jsonString)
+  {
+    StaticJsonDocument<512> root;
+    DeserializationError error = deserializeJson(root, jsonString);
+    
+    char const* keys[] = {"ip", "gateway", "subnet", "ssid", "password", nullptr};
+    for (JsonPair const & kv : root.as<JsonObject>())
+    {
+      char const** it = keys;
+      bool currentKeyValid = false;
+      while (*it) {
+        bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
+        bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
+        if (keyMatch && isString)
+        {
+          currentKeyValid = true;
+          break;
+        }
+        it++;
+      }
+      if (!currentKeyValid) {
+        return false;
+      }
+    }
+
+    ConfigSoftAP next = *this;
+    if (root.containsKey("ip") && !next.setIp(root["ip"].as<char*>())) { return false; }
+    if (root.containsKey("gateway") && !next.setGateway(root["gateway"].as<char*>())) { return false; }
+    if (root.containsKey("subnet") && !next.setSubnet(root["subnet"].as<char*>())) { return false; }
+    if (root.containsKey("ssid") && !next.setSsid(root["ssid"].as<char*>())) { return false; }
+    if (root.containsKey("password") && !next.setPassword(root["password"].as<char*>())) { return false; }
+
+    if (next == *this)
+    {
+      next._modified = false;
+    }
+    *this = next;
+    return true;
+  }
+
+  bool operator==(ConfigSoftAP const& other) const {
+    return other._ip == _ip &&
+           other._gateway == _gateway &&
+           other._subnet == _subnet &&
+           other._ssid == _ssid &&
+           other._password == _password;
+  }
+
+private:
+  bool setIpIfValid(String const & str, IPAddress &ip) {
+    bool ok = onlySetIpIfValid(str, ip);
+    if (ok) {
+      _modified = true;
+    }
+    return ok;
+  }
+
+  IPAddress _ip;
+  IPAddress _gateway; ///< Quite useless, since we don't route traffic to another net
+  IPAddress _subnet;
+
+  /** WPA2 standard allows a maximum of 32 chars (although some routers only allow 31 char) */
+  char _ssid[33];
+
+  /** Passwords are by the WPA2 standard limited to be at least 8 characters long,
+      and are not allowed to be longer than 63 characters. Leave empty for an open network. */
+  char _password[64];
+
+  bool _modified;
+} configSoftAP;
 
 
+bool serveFromSpiffs(String const & uri, const char* contenttype="text/html");
 String deviceAddressToString(DeviceAddress const & da);
 String sensorToString(int allSensorIndex);
 
@@ -197,369 +432,159 @@ void handleSettings()
   // one could run this in the source folder:
   // python3 -m http.server --bind 127.0.0.1
   // and browse to 127.0.0.1:8000
-  
-  static const char s[] PROGMEM = R"rawliteral(
-<html>
-<head>
-<title>TempViewer - Settings</title>
-<style>
-table, th, td {
-  border: 1px solid black;
-  border-collapse: collapse;
-}
-th, td {
-  padding-left: 5px;
-  padding-right: 5px;
-}
-</style>
-</head>
-<body onload="myOnLoad()">
 
-<div>
-Settings
-
-<button onclick="window.location.href='main.html'" style="position: absolute; right: 0;">Values</button>
-
-</div>
-
-<div id="settings">
-<fieldset>
-  <legend>Waiting for sensors:</legend>
-</fieldset>
-</div>
-<script>
-
-// TODO: remove this?
-var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-
-function renameSensor(sensorId, sensorName) {
-  var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
-  myPatch("api/sensors/" + sensorId, { "name": newName });
-}
-
-function myPatch(url, data)
-{
-  var xmlhttp = new XMLHttpRequest();
-  xmlhttp.onreadystatechange = function() {
-    if (this.readyState == 4 && this.status == 200) {
-      myRefresh();
-    }
-    else if (this.readyState == 4)
-    {
-      console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
-      myRefresh();
-    }
-  }
-  
-  xmlhttp.open("PATCH", url, true);
-  xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
-  xmlhttp.send(JSON.stringify(data));
-}
-
-function handleClick(checkbox) {
-  myPatch("api/sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
-  console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
-}
-
-function myRefresh()
-{
-  var xmlhttp = new XMLHttpRequest();
-  var url = "api/sensors";
-  xmlhttp.onreadystatechange = function() {
-    //var d = document.getElementById("myLastUpdate");
-    if (this.readyState == 4 && this.status == 200) {
-      var myArr = JSON.parse(this.responseText);
-      sensors = myArr["sensors"];
-      
-      function wrapSelectingCheckbox(str, i) {
-      return '<label for="' + sensors[i].id + '">' + str + '</label>';
-    }
-      
-      var s = document.getElementById("settings")
-      var str = '<fieldset>\n<legend>Temperature sensors:</legend>\n<table>\n' +
-      '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
-      for (var i = 0; i < sensors.length; i++)
-      {
-    str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
-    '" name="' + sensors[i].name + '"' +
-    ' onclick="handleClick(this);" ' +
-    (sensors[i].active ? 'checked>' : '>') + '</td>' +
-    
-    '<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
-    
-    '<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
-    
-    '<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
-    
-    '<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
-    
-    str += '</tr>\n';
-    }
-    str += '</table>\n</fieldset>\n';
-    s.innerHTML = str;
-    
-/*
-      if (sensors.length != 0)
-      {
-        var today = new Date();
-        d.innerHTML = "" + today.getFullYear() + "-" + 
-                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
-                           String(today.getDate()).padStart(2, '0') + " " +
-                           String(today.getHours()).padStart(2, '0') + ":" +
-                           String(today.getMinutes()).padStart(2, '0') + ":" +
-                           String(today.getSeconds()).padStart(2, '0')
-      } else {
-        h.innerHTML = "UNAVAILABLE";
-      }
-      */
-    }
-    else if (this.status == 404)
-    {
-      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-      var s = document.getElementById("settings");
-      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p>";
-      myRedraw();
-    }
-  };
-  xmlhttp.open("GET", url, true);
-  xmlhttp.send();
-}
-
-function myOnLoad()
-{
-  initialize();
-
-  function initialize() {
-    myRefresh();
-    setInterval(myRefresh, 100000); // used to be 10000
+  bool ok = serveFromSpiffs("/settings.html");
+  if (!ok)
+  {
+    server.send(404, "text/plain", "File not found");
   }
 }
-</script>
-
-</body>
-</html>
-)rawliteral";
-  server.send_P(200, "text/html", s);
-}
-
-
 
 void handleRoot()
 {
-  // created string by running
-  // cat main.html | sed -e 's/\"/\\"/g' -e 's/$/\\n\"/' -e 's/^/\"/'
-  //
   // When running tests against main.html requiring a web server on the other end
   // one could run this in the source folder:
   // python3 -m http.server --bind 127.0.0.1
   // and browse to 127.0.0.1:8000
-  
-  //String s = "<h1>Something is working! /sg</h1><p>Readings: ";
-  static const char s[] PROGMEM = R"rawliteral(
-<html>
-<head>
-<style>
-body
-{
-  display:table;
-  width:100%;
-  height:100%;
-}
-div
-{
-  display:table-row;
-}
-div#canvasDiv
-{
-  height:100%;
-  padding:0px;
-}
-</style>
-<title>TempViewer</title>
-</head>
-<body onload="myOnLoad()">
 
-<div>Last Value: <span id="myLastValue"></span>.
-Last Update: <span id="myLastUpdate">No readings yet</span>.
-Trend for
-<select id="myDurationSelect" onchange="myDurationChanged()">
- <option value="1h" selected="selected">last hour</option>
- <option value="24h">last 24 hours</option>
-</select>
-<button onclick="window.location.href='settings.html'" style="position: absolute; right: 0;">Settings</button>
-</div>
-
-<div id="canvasDiv">
-<canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
-Sorry, your browser does not support the canvas element!
-</canvas>
-</div>
-
-<script>
-var globalRequestDuration = "";
-var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-
-function myDurationChanged() {  
-  var s = document.getElementById("myDurationSelect");
-  globalRequestDuration = s.options[s.selectedIndex].value;
-  myOnLoad();
-}
-myDurationChanged();
-
-function myRedraw() {
-  var c = document.getElementById("myCanvas");
-  var ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, c.width, c.height);
-
-  ctx.beginPath();
-  ctx.strokeStyle = 'blue';
-  ctx.lineWidth = '5';
-  ctx.strokeRect(0, 0, c.width, c.height);
-
-  ctx.beginPath();
-  ctx.lineWidth = '1';
-  var scaleX = c.width * 1.0 / sensors[0]["readings"].length;
-  var maxY = 50;
-  var scaleY = c.height * 1.0 / maxY;
-
-  // Make grid
-  if (globalRequestDuration == "1h")
+  bool ok = serveFromSpiffs("/main.html");
+  if (!ok)
   {
-    var divisionsX = 6;
-  }
-  else
-  {
-    var divisionsX = 24;
-  }
-  
-  var divisionsY = 5;
-  ctx.strokeStyle = "blue";
-  ctx.fillStyle = ctx.strokeStyle;
-  ctx.font="100% sans-serif";
-  for (var x = 0; x < divisionsX; x++)
-  {
-    ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
-    ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
-  }
-  var rightOfYValues = 5;
-  for (var y = 0; y < divisionsY; y++)
-  {
-    ctx.moveTo(0, y * (c.height - 1) / divisionsY);
-    ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
-    var txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
-    ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
-    rightOfYValues = Math.max(rightOfYValues, ctx.measureText(txt).width + 5 + 5);
-  }
-  ctx.stroke();
-
-  // draw curve
-  for (var sensor = 0; sensor < sensors.length; sensor++)
-  {
-    ctx.beginPath();
-    ctx.moveTo(0, c.height - scaleY * sensors[sensor]["readings"][0]);
-    if (sensor == 0)
-    ctx.strokeStyle = 'black';
-    else if (sensor == 1)
-    ctx.strokeStyle = 'red';
-    else if (sensor == 2)
-    ctx.strokeStyle = 'green';
-    else
-    ctx.strokeStyle = 'gray'; // TODO: support more curves?
-    ctx.fillStyle = ctx.strokeStyle;
-    
-    ctx.lineWidth = '2';
-    for (var i = 0; i < sensors[sensor]["readings"].length; i++) {
-    ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
-    }
-    
-    ctx.fillRect(rightOfYValues, (sensor + 1) * 20, 10, 10)
-    ctx.textBaseline = 'middle';
-    ctx.fillText(sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")",
-                 rightOfYValues + 15, 5 + (sensor + 1) * 20); // TODO: get font height ?
-    ctx.textBaseline = 'alphabetic';
-    ctx.stroke();
+    server.send(404, "text/plain", "File not found");
   }
 }
 
-function myRefresh() {
-  var xmlhttp = new XMLHttpRequest();
-  var url = "api/readings/" + globalRequestDuration;
-  xmlhttp.onreadystatechange = function() {
-    var h = document.getElementById("myLastValue");
-    var d = document.getElementById("myLastUpdate");
-    if (this.readyState == 4 && this.status == 200) {
-      var myArr = JSON.parse(this.responseText);
-      sensors = myArr["sensors"];
-
-      if (sensors[0]["readings"].length != 0)
-      {
-        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
-        var today = new Date();
-        d.innerHTML = "" + today.getFullYear() + "-" + 
-                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
-                           String(today.getDate()).padStart(2, '0') + " " +
-                           String(today.getHours()).padStart(2, '0') + ":" +
-                           String(today.getMinutes()).padStart(2, '0') + ":" +
-                           String(today.getSeconds()).padStart(2, '0')
-      } else {
-        h.innerHTML = "UNAVAILABLE";
-      }
-      myRedraw();
-    }
-    else if (this.status == 404)
-    {
-      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-      h.innerHTML = "UNAVAILABLE";
-      d.innerHTML = "UNAVAILABLE";
-      myRedraw();
-    }
-  };
-  xmlhttp.open("GET", url, true);
-  xmlhttp.send();
-}
-
-function myOnLoad() {
-  var c = document.getElementById("myCanvas");
-  var ctx = c.getContext("2d");
-  
-  initialize();
-
-  function initialize() {
-    window.addEventListener('resize', resizeCanvas, false);
-    resizeCanvas();
-    myRefresh();
-    setInterval(myRefresh, 10000);
-  }
-
-  // Runs each time the DOM window resize event fires.
-  // Resets the canvas dimensions to match window,
-  // then draws the new borders accordingly.
-  function resizeCanvas() {
-    var d = document.getElementById("canvasDiv");
-    var c = document.getElementById("myCanvas");
-    
-    // Needed to let the canvasDiv div fill the remaining space without scrolling
-    c.width = 0;
-    c.height = 0;
-    
-    c.width = d.offsetWidth - 20;
-    c.height = d.offsetHeight - 20;
-    myRedraw();
-  }
-}
-</script>
-
-</body>
-
-</html>
-)rawliteral";
-  server.send_P(200, "text/html", s);
-}
 
 String getSensorStart(int allSensorsIndex) {
   Sensor const & sensor = allSensors[allSensorsIndex];
   String s = "{\"id\":\"" + String(sensor.id) + "\", \"name\":\"" + String(sensor.name) + "\", \"readings\":[";
   return s;
+}
+
+
+bool serveFromSpiffs(String const & uri, const char* contenttype)
+{
+  if (uri.indexOf("..") != -1)
+  {
+    // prevent nasty people (in case SPIFFS now or in the future support "/html/../config/")
+    return false;
+  }
+
+  String path = "/html";
+  if (!uri.startsWith("/")) {
+    path += "/";
+  }
+  path += uri;
+
+  if (SPIFFS.exists(path))
+  {
+    File file = SPIFFS.open(path, "r");
+    size_t sent = server.streamFile(file, contenttype);
+    file.close();
+    return true;
+  }
+  
+  return false;
+}
+
+void sendError(String errMsg)
+{
+  errMsg = "ERROR: " + errMsg + "\n" + "URI: " + server.uri();
+  server.send(400, "text/plain", errMsg);
+}
+
+void returnConfigReplaceField(const char* location, const char* fieldToReplace, const char* newValue)
+{
+  File configFile = SPIFFS.open(location, "r");
+  if (!configFile) {
+    sendError("Failed to open config file");
+    return;
+  }
+
+  size_t size = configFile.size();
+  if (size > 1024) {
+    sendError("Config file size is too large");
+    return;
+  }
+
+  std::unique_ptr<char[]> buf(new char[size]);
+  configFile.readBytes(buf.get(), size);
+  configFile.close();
+
+  StaticJsonDocument<512> json;
+  DeserializationError error = deserializeJson(json, buf.get());
+  if (error)
+  {
+    String e = String("Failed to parse config file\n===CONTENT===\n") + buf.get() + "\n======\n";
+    sendError(e);
+    return;
+  }
+
+  if (!json.containsKey(fieldToReplace))
+  {
+    sendError("Config file damaged??");
+    return;
+  }
+  json[fieldToReplace] = "********";
+  String response;
+  serializeJson(json, response);
+  server.send(200, "application/javascript", response);
+}
+
+void handleWifiSoftAP()
+{
+  if (server.method() == HTTP_GET)
+  {
+    returnConfigReplaceField("/config/wifi/softap", "password", "********");
+  }
+  else if (server.method() == HTTP_PATCH && server.hasArg("plain"))
+  {
+    String const json = server.arg("plain");
+
+    bool ok = configSoftAP.patch(json.c_str());
+    if (ok && configSoftAP.isModified()) {
+      ok = configSoftAP.save();
+    }
+    if (ok)
+    {
+      server.send(200, "text/plain", "OK");
+    }
+    else 
+    {
+      server.send(400, "text/plain", "ERROR"); // TODO: which status code???
+    }
+  }
+  else
+  {
+    sendError("???");
+  }
+}
+
+void handleWifiNetwork()
+{
+  if (server.method() == HTTP_GET)
+  {
+    returnConfigReplaceField("/config/wifi/network", "password", "********");
+  }
+  else
+  {
+    // TODO: implement
+    sendError("only HTTP_GET supported");
+  }
+}
+
+void handlePersist()
+{
+  if (server.method() == HTTP_GET)
+  {
+    // TODO: keep track of unsaved changes
+    server.send(200, "application/javascript", "{\"persist_now\": 0, \"unsaved_changes\": 1}");
+  }
+  else
+  {
+    // TODO: implement
+    sendError("only HTTP_GET supported");
+  }
 }
 
 void handleNotFound()
@@ -585,7 +610,7 @@ void handleNotFound()
           {
             String const json = server.arg("plain");
             
-            const size_t capacity = JSON_OBJECT_SIZE(2) + 100;
+            const size_t capacity = JSON_OBJECT_SIZE(2) + 200;
             StaticJsonDocument<capacity> root;
             DeserializationError error = deserializeJson(root, json.c_str());
             
@@ -616,12 +641,26 @@ void handleNotFound()
       }
     }
   }
+  else if (serveFromSpiffs(server.uri()))
+  {
+    return; // all went well
+  }
   
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
-  message += "\nMethod: ";
-  message += (server.method() == HTTP_GET) ? "GET" : "POST";
+  message += "\nMethod: HTTP_";
+  switch(server.method())
+  {
+    case HTTP_ANY: message += "ANY"; break;
+    case HTTP_GET: message += "GET"; break;
+    case HTTP_POST: message += "POST"; break;
+    case HTTP_PUT: message += "PUT"; break;
+    case HTTP_PATCH: message += "PATCH"; break;
+    case HTTP_DELETE: message += "DELETE"; break;
+    case HTTP_OPTIONS: message += "OPTIONS"; break;
+    default: message += "????";
+  }
   message += "\nArguments: ";
   message += server.args();
   message += "\n";
@@ -708,24 +747,50 @@ void setup()
   }
   Serial.println();
 
+  SPIFFS.begin();
+
+  Serial.print("Loading softAP config from flash ... ");
+  bool softApLoadSuccess = configSoftAP.load();
+  Serial.println( softApLoadSuccess ? "Ready" : "Failed!");
+  Serial.flush();
+
+
+// More info about softAP WIFI configuration at https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/soft-access-point-class.html
+// More info about strange softAP password requirements at https://github.com/esp8266/Arduino/issues/1141
   Serial.print("Setting soft-AP configuration ... ");
-  boolean softApConfigSuccess = WiFi.softAPConfig(local_IP, gateway, subnet);
+  boolean softApConfigSuccess = WiFi.softAPConfig(
+    configSoftAP.getIp(),
+    configSoftAP.getGateway(),
+    configSoftAP.getSubnet()
+  );
   Serial.println( softApConfigSuccess ? "Ready" : "Failed!");
+  Serial.flush();
 
   Serial.print("Setting soft-AP ... ");
-  boolean softApStartSuccess = WiFi.softAP(SSID, password);
+  boolean softApStartSuccess = WiFi.softAP(
+    configSoftAP.getSsid(),
+    configSoftAP.getPassword(),
+    /* channel*/ 1,
+    /* hidden */ false,
+    /*max_connection (default 4)*/ 8
+  );
   Serial.println( softApStartSuccess ? "Ready" : "Failed");
+  Serial.flush();
 
   server.on("/", handleRoot);
-  server.on("/main.html", handleRoot);
-  server.on("/settings.html", handleSettings);
+  //server.on("/main.html", handleRoot);
+  //server.on("/spiffs_test.html", spiffsTest);
+  //server.on("/settings.html", handleSettings);
   server.on("/api/sensors", handleSensors);
   server.on("/api/sensors/", handleSensors);
   server.on("/api/readings/1h", handleSensors_1h);
   server.on("/api/readings/24h", handleSensors_24h);
+  server.on("/api/wifi/softap", handleWifiSoftAP);
+  server.on("/api/wifi/network", handleWifiNetwork);
+  server.on("/api/persist", handlePersist);
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.print("Server listening on ");
+  Serial.print("Server listening on: ");
   Serial.println(WiFi.softAPIP());
 
   for (int i = 0; i < 2; i++)

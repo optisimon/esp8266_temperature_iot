@@ -1,0 +1,1 @@
+{ "ssid": "TestAP", "password": "testtest", "ip": "192.168.1.1", "gateway": "192.168.1.1", "subnet": "255.255.255.0"}

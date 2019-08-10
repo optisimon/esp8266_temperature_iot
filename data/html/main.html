@@ -1,0 +1,196 @@
+<html>
+<head>
+<style>
+body
+{
+  display:table;
+  width:100%;
+  height:100%;
+}
+div
+{
+  display:table-row;
+}
+div#canvasDiv
+{
+  height:100%;
+  padding:0px;
+}
+</style>
+<title>TempViewer</title>
+</head>
+<body onload="myOnLoad()">
+
+<div>Last Value: <span id="myLastValue"></span>.
+Last Update: <span id="myLastUpdate">No readings yet</span>.
+Trend for
+<select id="myDurationSelect" onchange="myDurationChanged()">
+ <option value="1h" selected="selected">last hour</option>
+ <option value="24h">last 24 hours</option>
+</select>
+<button onclick="window.location.href='settings.html'" style="position: absolute; right: 0;">Settings</button>
+</div>
+
+<div id="canvasDiv">
+<canvas id="myCanvas", width="80", height="300" style="border:1px solid #808080;">
+Sorry, your browser does not support the canvas element!
+</canvas>
+</div>
+
+<script>
+var globalRequestDuration = "";
+var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+
+function myDurationChanged() {  
+  var s = document.getElementById("myDurationSelect");
+  globalRequestDuration = s.options[s.selectedIndex].value;
+  myOnLoad();
+}
+myDurationChanged();
+
+function myRedraw() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+
+  ctx.beginPath();
+  ctx.strokeStyle = 'blue';
+  ctx.lineWidth = '5';
+  ctx.strokeRect(0, 0, c.width, c.height);
+
+  ctx.beginPath();
+  ctx.lineWidth = '1';
+  var scaleX = c.width * 1.0 / sensors[0]["readings"].length;
+  var maxY = 50;
+  var scaleY = c.height * 1.0 / maxY;
+
+  // Make grid
+  if (globalRequestDuration == "1h")
+  {
+    var divisionsX = 6;
+  }
+  else
+  {
+    var divisionsX = 24;
+  }
+  
+  var divisionsY = 5;
+  ctx.strokeStyle = "blue";
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.font="100% sans-serif";
+  for (var x = 0; x < divisionsX; x++)
+  {
+    ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
+    ctx.lineTo(x * (c.width - 1) / divisionsX, c.height);
+  }
+  var rightOfYValues = 5;
+  for (var y = 0; y < divisionsY; y++)
+  {
+    ctx.moveTo(0, y * (c.height - 1) / divisionsY);
+    ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
+    var txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
+    ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
+    rightOfYValues = Math.max(rightOfYValues, ctx.measureText(txt).width + 5 + 5);
+  }
+  ctx.stroke();
+
+  // draw curve
+  for (var sensor = 0; sensor < sensors.length; sensor++)
+  {
+	  ctx.beginPath();
+	  ctx.moveTo(0, c.height - scaleY * sensors[sensor]["readings"][0]);
+	  if (sensor == 0)
+		ctx.strokeStyle = 'black';
+	  else if (sensor == 1)
+		ctx.strokeStyle = 'red';
+	  else if (sensor == 2)
+		ctx.strokeStyle = 'green';
+	  else
+		ctx.strokeStyle = 'gray'; // TODO: support more curves?
+	  ctx.fillStyle = ctx.strokeStyle;
+		
+	  ctx.lineWidth = '2';
+	  for (var i = 0; i < sensors[sensor]["readings"].length; i++) {
+		ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
+	  }
+	  
+	  ctx.fillRect(rightOfYValues, (sensor + 1) * 20, 10, 10)
+	  ctx.textBaseline = 'middle';
+	  ctx.fillText(sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")",
+	               rightOfYValues + 15, 5 + (sensor + 1) * 20); // TODO: get font height ?
+	  ctx.textBaseline = 'alphabetic';
+	  ctx.stroke();
+  }
+}
+
+function myRefresh() {
+  var xmlhttp = new XMLHttpRequest();
+  var url = "api/readings/" + globalRequestDuration;
+  xmlhttp.onreadystatechange = function() {
+    var h = document.getElementById("myLastValue");
+    var d = document.getElementById("myLastUpdate");
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+      sensors = myArr["sensors"];
+
+      if (sensors[0]["readings"].length != 0)
+      {
+        h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
+        var today = new Date();
+        d.innerHTML = "" + today.getFullYear() + "-" + 
+                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
+                           String(today.getDate()).padStart(2, '0') + " " +
+                           String(today.getHours()).padStart(2, '0') + ":" +
+                           String(today.getMinutes()).padStart(2, '0') + ":" +
+                           String(today.getSeconds()).padStart(2, '0')
+      } else {
+        h.innerHTML = "UNAVAILABLE";
+      }
+      myRedraw();
+    }
+    else if (this.status == 404)
+    {
+      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+      h.innerHTML = "UNAVAILABLE";
+      d.innerHTML = "UNAVAILABLE";
+      myRedraw();
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myOnLoad() {
+  var c = document.getElementById("myCanvas");
+  var ctx = c.getContext("2d");
+  
+  initialize();
+
+  function initialize() {
+    window.addEventListener('resize', resizeCanvas, false);
+    resizeCanvas();
+    myRefresh();
+    setInterval(myRefresh, 10000);
+  }
+
+  // Runs each time the DOM window resize event fires.
+  // Resets the canvas dimensions to match window,
+  // then draws the new borders accordingly.
+  function resizeCanvas() {
+    var d = document.getElementById("canvasDiv");
+    var c = document.getElementById("myCanvas");
+    
+    // Needed to let the canvasDiv div fill the remaining space without scrolling
+    c.width = 0;
+    c.height = 0;
+    
+    c.width = d.offsetWidth - 20;
+    c.height = d.offsetHeight - 20;
+    myRedraw();
+  }
+}
+</script>
+
+</body>
+
+</html>

@@ -1,0 +1,306 @@
+<html>
+<head>
+<title>TempViewer - Settings</title>
+<style>
+table, th, td {
+	border: 1px solid black;
+	border-collapse: collapse;
+}
+th, td {
+	padding-left: 5px;
+	padding-right: 5px;
+}
+</style>
+</head>
+<body onload="myOnLoad()">
+
+<div>
+Settings
+
+<button onclick="window.location.href='main.html'" style="position: absolute; right: 0;">Values</button>
+
+</div>
+
+<div id="settings">
+
+<fieldset id="sensors">
+	<legend>Waiting for sensor settings:</legend>
+</fieldset>
+
+<form id="softap-form" onsubmit="updateSoftAP(); return false;">
+<fieldset id="softap">
+	<legend>Waiting for softap settings:</legend>
+</fieldset>
+</form>
+
+<form>
+<fieldset id="network">
+	<legend>Waiting for network settings:</legend>
+</fieldset>
+</form>
+
+<fieldset id="persist">
+	<legend>Persistence:</legend>
+</fieldset>
+
+</div>
+<script>
+
+// TODO: remove this?
+var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+
+function renameSensor(sensorId, sensorName) {
+	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
+	myPatch("api/sensors/" + sensorId, { "name": newName });
+}
+
+function myPatch(url, data)
+{
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			myRefresh();
+		}
+		else if (this.readyState == 4)
+		{
+			console.log("PATCH failed for url'" + url + "' and object '" + JSON.stringify(data) + "'");
+			myRefresh();
+		}
+	}
+	
+	xmlhttp.open("PATCH", url, true);
+	xmlhttp.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+	xmlhttp.send(JSON.stringify(data));
+}
+
+function handleClick(checkbox) {
+	myPatch("api/sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
+	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
+}
+
+function myRefreshSensors()
+{
+  var xmlhttp = new XMLHttpRequest();
+  var url = "api/sensors";
+  xmlhttp.onreadystatechange = function() {
+    //var d = document.getElementById("myLastUpdate");
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+      sensors = myArr["sensors"];
+      
+      function wrapSelectingCheckbox(str, i) {
+		  return '<label for="' + sensors[i].id + '">' + str + '</label>';
+	  }
+      
+      var s = document.getElementById("sensors");
+      var str = '<legend>Temperature sensors:</legend>\nSelect at most ' + myArr.max_num_active + ' sensors for plotting.<br><table>\n' +
+      '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
+      for (var i = 0; i < sensors.length; i++)
+      {
+		str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
+		'" name="' + sensors[i].name + '"' +
+		' onclick="handleClick(this);" ' +
+		(sensors[i].active ? 'checked>' : '>') + '</td>' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
+		
+		'<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
+		
+		'<td> <button onclick="renameSensor(\'' + sensors[i].id + '\', \'' + sensors[i].name + '\')"> Rename</button></td>';
+		
+		str += '</tr>\n';
+	  }
+	  str += '</table>\n';
+	  s.innerHTML = str;
+	  
+/*
+      if (sensors.length != 0)
+      {
+        var today = new Date();
+        d.innerHTML = "" + today.getFullYear() + "-" + 
+                           String(today.getMonth() + 1).padStart(2, '0') + "-" +
+                           String(today.getDate()).padStart(2, '0') + " " +
+                           String(today.getHours()).padStart(2, '0') + ":" +
+                           String(today.getMinutes()).padStart(2, '0') + ":" +
+                           String(today.getSeconds()).padStart(2, '0')
+      } else {
+        h.innerHTML = "UNAVAILABLE";
+      }
+      */
+    }
+    else if (this.status == 404)
+    {
+      sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
+      var s = document.getElementById("settings");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p>";
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+
+function updateSoftAP()
+{
+	alert("WARNING: updating softAP configuration!");
+	
+	var elements = document.getElementById("softap-form").elements;
+	
+	var patch = {};
+	// Skipping password field for now
+	for (var i = 0, e; e = elements[i++];) {
+		if ((e.type === "text" || (e.type === "password" && e.value != "")) &&
+		    e.name != "" &&
+		    !e.disabled) {
+			patch[e.name] = e.value;
+		}
+	}
+	
+	myPatch("api/wifi/softap", patch);
+}
+
+function handleSoftApPasswordClick(checkbox) {
+	var p = document.getElementById("softap-password-field");
+	p.disabled = !checkbox.checked;
+}
+
+function myRefreshSoftAP()
+{
+  var xmlhttp = new XMLHttpRequest();
+  var url = "api/wifi/softap";
+  xmlhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+       
+      var s = document.getElementById("softap")
+      var str = '<legend>SoftAP settings:</legend>\n<table>\n' +
+      '<tr> <th>Parameter</th> <th>Value</th> </tr>';
+      
+      for (var key in myArr) {
+        if (myArr.hasOwnProperty(key)) {
+          str += '<tr>\n<td>' + key + '</td><td>';
+          if (key == "ip" || key == "gateway" || key == "subnet")
+          {
+			  // TODO: https://stackoverflow.com/questions/49306970/correct-input-type-for-ip-address
+			  str += '<input type="text" minlength="7" maxlength="15" size="15" pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}$" required';
+		  }
+			else if (key == "ssid")
+		  {
+			  str += '<input type="text" minlength="1" maxlength="32" size="32" required';
+		  }
+		  else if (key == "password")
+		  {
+			  str += '<input id="softap-password-field" type="password" disabled minlength="8" maxlength="63" size="63" required';
+		  }
+          str += ' name="' + key + '"';
+
+          if (key == "password") {
+			str += '><input type="checkbox" id="softap-update-password" onclick="handleSoftApPasswordClick(this);">' + 
+			       '<label for="softap-update-password">Change password</label>\n';
+		  }
+		  else
+		  {
+			  str += ' value="' + myArr[key] +'">';
+		  }
+          str +='</td></tr>\n';
+        }
+	  }
+	  str += '</table>\n';
+	  str += '<input type="submit" value="Save softAP settings">';
+	  s.innerHTML = str;
+    }
+    else if (this.status == 404)
+    {
+      var s = document.getElementById("softap");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back softap</p>";
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myRefreshNetwork()
+{
+  var xmlhttp = new XMLHttpRequest();
+  var url = "api/wifi/network";
+  xmlhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+       
+      var s = document.getElementById("network")
+      var str = '<legend>Network settings:</legend>\n<table>\n' +
+      '<tr> <th>Parameter</th> <th>Value</th> <th>Actions</th> </tr>';
+      
+      for (var key in myArr) {
+        if (myArr.hasOwnProperty(key)) {
+          str += '<tr>\n<td>' + key + '</td><td>' + myArr[key] +'</td><td></td></tr>\n';
+        }
+	  }
+	  str += '</table>\n';
+	  s.innerHTML = str;
+    }
+    else if (this.status == 404)
+    {
+      var s = document.getElementById("network");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back network</p>";
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myRefreshPersist()
+{
+  var xmlhttp = new XMLHttpRequest();
+  var url = "api/persist";
+  xmlhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+      var myArr = JSON.parse(this.responseText);
+       
+      var s = document.getElementById("persist")
+      var str = '<legend>Persistance:</legend>';
+      
+      if (myArr.unsaved_changes != 0)
+      {
+		  str += 'You need to save your changes to keep them after your next power on:<br>'
+		  + '<button onclick="myPatch(\'api/persist\', {\'persist_now\':1});">Save</button>\n';
+	  }
+	  else
+	  {
+		  str += 'You have no unsaved changes';
+	  }
+	  s.innerHTML = str;
+    }
+    else if (this.status == 404)
+    {
+      var s = document.getElementById("persist");
+      s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when checking for unsaved changes</p>";
+    }
+  };
+  xmlhttp.open("GET", url, true);
+  xmlhttp.send();
+}
+
+function myRefresh()
+{
+	myRefreshSensors();
+	myRefreshSoftAP();
+	myRefreshNetwork();
+	myRefreshPersist();
+}
+
+function myOnLoad()
+{
+  initialize();
+
+  function initialize() {
+    myRefresh();
+    setInterval(myRefresh, 100000); // used to be 10000
+  }
+}
+</script>
+
+</body>
+</html>

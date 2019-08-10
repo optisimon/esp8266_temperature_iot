@@ -1,6 +1,20 @@
 
-When running in softAP mode, the unit will by default  present itself on
-192.168.1.1.
+Nowadays using SPIFFS (flash) for storing configuration files as well as web pages.
+
+They need to be flashed separately for the softwaare to work.
+
+=== Summary of settings in the arduino environment which seem relevant: ===
+NodeMCU 1.0 (ESP-12E Module)
+Flash Size: 4M (1M SPIFFS)
+
+Installed libraries:
+ArduinoJson 6.11.3
+DallasTemperature 3.8.0
+OneWire 2.3.4
+
+Installed tools:
+https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
+
 
 === Summary of json objects available: ===
 
@@ -43,7 +57,8 @@ NOT AVAILABLE YET:
       "active": 1,
       "lastValue": 25.88
     }
-  ]
+  ],
+  "max_num_active": 2
 }
 
 
@@ -144,12 +159,12 @@ TODO: NOT DECIDED YET (since this is a slow operation?)
 === Flash file system ===
 
 Have these files:
-  "settings/wifi/softap"
-  "settings/wifi/network"
-  "settings/sensors"
+  "config/wifi/softap"
+  "config/wifi/network"
+  "config/sensors"
 
 
-==== settings/sensors (flash FS) ====
+==== config/sensors (flash FS) ====
 
 {
   "sensors": [
