@@ -20,20 +20,21 @@
 // Sending replies using multiple calls to the web server (to preserve RAM):
 // https://github.com/esp8266/Arduino/issues/3205
 
+// Different servers on the softAP and network interfaces
+// https://arduino.stackexchange.com/questions/67269/create-one-server-in-ap-mode-and-another-in-station-mode
 
 // SPIFFS
 // https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
 // https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
 //https://github.com/pellepl/spiffs/wiki/FAQ
 
+// TODO: FW update in web interface
 // TODO: split program up (include .h and .cpp-files into the sketch, but edit elsewhere?)
 // TODO: Should we do something when an interface disconnects / reconnects: https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
 // TODO: warn if softAP and network overlaps (web server only serves on one interface in that case)
-// TODO: once connecting to other network, store channel and use it for softap only as well.
+// TODO: once connecting to other network, store channel and use it for softap only as well. (current workaround: bring up other network first)
 // TODO: Report values for multiple sensors? (might be limited by RAM)?
-// TODO: store name of sensors permanently in the flash file system?
 // TODO: store sensors to view in flash filesystem + make them easy to select?
-// TODO: Cache results for json object ?
 // TODO: break down sending of different sensors into separate calls to the web server (to be nicer on RAM). see https://github.com/esp8266/Arduino/issues/3205
 #include <DallasTemperature.h>
 
@@ -41,7 +42,9 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
-#include "FS.h"
+#include <FS.h>
+
+#include "CircularBuffer.hpp"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
 const unsigned long time_between_24h_readings_ms = 60000UL;
@@ -70,221 +73,6 @@ bool onlySetIpIfValid(String const & str, IPAddress &ip)
   return isValid;
 }
 
-struct ConfigSoftAP
-{
-  ConfigSoftAP() : 
-    _ip(192,168,0,1),
-    _gateway(192,168,0,1),
-    _subnet(255,255,255,0),
-    _ssid{"TestAP"},
-    _password{"testtest"},
-    _modified(false)
-  { /* no code */ }
-
-  IPAddress const & getIp() const { return _ip; }
-  bool setIp(String const & newIP) { return setIpIfValid(newIP, _ip); }
-
-  IPAddress const & getGateway() const { return _gateway; }
-  bool setGateway(String const & newIP) { return setIpIfValid(newIP, _gateway); }
-
-  IPAddress const & getSubnet() const { return _subnet; }
-  bool setSubnet(String const & newIP) { return setIpIfValid(newIP, _subnet); }
-
-  const char* getSsid() const { return _ssid; }
-  bool setSsid(String const & str)
-  {
-    if (str.length() < 1 || str.length() >= sizeof(_ssid))
-    {
-      return false;
-    }
-    strncpy(_ssid, str.c_str(), sizeof(_ssid));
-    _modified = true;
-    return true;
-  }
-
-  const char* getPassword() const { return _password; }
-  bool setPassword(String const & str)
-  {
-    if (str.length() >= sizeof(_password))
-    {
-      return false;
-    }
-    strncpy(_password, str.c_str(), sizeof(_password));
-    _modified = true;
-    return true;
-  }
-
-  bool isModified() const { return _modified; };
-
-  /** Save values to flash */
-  bool save()
-  {
-    String ip = _ip.toString();
-    String gateway = _gateway.toString();
-    String subnet = _subnet.toString();
-    
-    StaticJsonDocument<512> json;
-    json["ssid"] = _ssid;
-    json["password"] = _password;
-    json["ip"] = ip.c_str();
-    json["gateway"] = gateway.c_str();
-    json["subnet"] = subnet.c_str();
-
-    char response[512] = {};
-    size_t toWrite = serializeJson(json, response, sizeof(response));
-
-    if (!toWrite || toWrite >= sizeof(response))
-    {
-      Serial.println("too much");
-      return false; 
-    }
-
-//    Serial.print("Writing: ");
-//    Serial.println(response);
-
-    File configFile = SPIFFS.open("/config/wifi/softap", "w");
-    if (!configFile) {
-      Serial.println("file open failed");
-      return false;
-    }
-
-    size_t written = configFile.println(response);
-    if (!written) {
-      Serial.println("not written");
-      configFile.close();
-      return false;
-    }
-    configFile.close();
-
-    _modified = false;
-    return true;
-  }
-
-  /** Load values from flash */
-  bool load()
-  {
-    File configFile = SPIFFS.open("/config/wifi/softap", "r");
-    if (!configFile) {
-      Serial.println("not found");
-      return false;
-    }
-  
-    size_t size = configFile.size();
-    if (size > 1024) {
-      Serial.println("too large");
-      return false;
-    }
-  
-    std::unique_ptr<char[]> buf(new char[size]);
-    configFile.readBytes(buf.get(), size);
-    configFile.close();
-  
-    StaticJsonDocument<512> json;
-    DeserializationError error = deserializeJson(json, buf.get());
-    if (error) {
-      Serial.println("deserialize fail");
-      return false;
-    }
-    char const* keys[] = {"ip", "gateway", "subnet", "ssid", "password", nullptr};
-    char const** it = keys;
-    while (*it) {
-      if (!json.containsKey(*it)) {
-        Serial.printf("missing key %s", *it);
-        return false;
-      }
-      it++;
-    }
-
-    ConfigSoftAP next;
-    if (next.setIp(json["ip"]) &&
-        next.setGateway(json["gateway"]) &&
-        next.setSubnet(json["subnet"]) &&
-        next.setSsid(json["ssid"]) &&
-        next.setPassword(json["password"]))
-    {
-      next._modified = false;
-      *this = next;
-      return true;
-    }
-    Serial.println("malformed?");
-    return false;
-  }
-
-  /** Update zero or more elements provided in json input
-      @return true if validation OK and data (if any) updated. On error, no fields are updated
-   */
-  bool patch(char const * jsonString)
-  {
-    StaticJsonDocument<512> root;
-    DeserializationError error = deserializeJson(root, jsonString);
-    
-    char const* keys[] = {"ip", "gateway", "subnet", "ssid", "password", nullptr};
-    for (JsonPair const & kv : root.as<JsonObject>())
-    {
-      char const** it = keys;
-      bool currentKeyValid = false;
-      while (*it) {
-        bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
-        bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
-        if (keyMatch && isString)
-        {
-          currentKeyValid = true;
-          break;
-        }
-        it++;
-      }
-      if (!currentKeyValid) {
-        return false;
-      }
-    }
-
-    ConfigSoftAP next = *this;
-    if (root.containsKey("ip") && !next.setIp(root["ip"].as<char*>())) { return false; }
-    if (root.containsKey("gateway") && !next.setGateway(root["gateway"].as<char*>())) { return false; }
-    if (root.containsKey("subnet") && !next.setSubnet(root["subnet"].as<char*>())) { return false; }
-    if (root.containsKey("ssid") && !next.setSsid(root["ssid"].as<char*>())) { return false; }
-    if (root.containsKey("password") && !next.setPassword(root["password"].as<char*>())) { return false; }
-
-    if (next == *this)
-    {
-      return true;
-    }
-    *this = next;
-    _modified = true;
-    return true;
-  }
-
-  bool operator==(ConfigSoftAP const& other) const {
-    return other._ip == _ip &&
-           other._gateway == _gateway &&
-           other._subnet == _subnet &&
-           other._ssid == _ssid &&
-           other._password == _password;
-  }
-
-private:
-  bool setIpIfValid(String const & str, IPAddress &ip) {
-    bool ok = onlySetIpIfValid(str, ip);
-    if (ok) {
-      _modified = true;
-    }
-    return ok;
-  }
-
-  IPAddress _ip;
-  IPAddress _gateway; ///< Quite useless, since we don't route traffic to another net
-  IPAddress _subnet;
-
-  /** WPA2 standard allows a maximum of 32 chars (although some routers only allow 31 char) */
-  char _ssid[33];
-
-  /** Passwords are by the WPA2 standard limited to be at least 8 characters long,
-      and are not allowed to be longer than 63 characters. Leave empty for an open network. */
-  char _password[64];
-
-  bool _modified;
-} configSoftAP;
-
 /*
 struct IJsonConfig()
 {
@@ -303,112 +91,59 @@ bool areAllKeysKnownAndOfCorrectType(JsonDocument const & patch, const char* def
   check that all keys in patch exist in defaults and have the correct type
 }
 */
-struct ConfigNetwork
-{
-  enum class Assignment { STATIC = 0, DHCP = 1 };
-  ConfigNetwork() : 
-    _enabled(false),
-    _assignment(Assignment::DHCP),
-    _staticIp(192,168,1,1),
-    _staticGateway(192,168,1,1),
-    _staticSubnet(255,255,255,0),
-    _ssid{"HouseNetwork"},
-    _password{"testtest"},
-    _modified(false)
+
+#include "ConfigSoftAP.hpp"
+ConfigSoftAP configSoftAP;
+
+#include "ConfigNetwork.hpp"
+ConfigNetwork configNetwork;
+
+
+bool serveFromSpiffs(String const & uri, const char* contenttype="text/html");
+String deviceAddressToString(DeviceAddress const & da);
+void stringToDeviceAddress(DeviceAddress da, String const & id);
+String sensorToString(int allSensorIndex);
+
+
+ESP8266WebServer server(80);
+
+struct Sensor {
+  int16_t index; ///< sensor index as determined by DallasTemperature class
+  DeviceAddress deviceAddress;
+  char id[17];
+  char name[17];
+  bool active;
+  float lastValue; ///< not persisted
+  Sensor() : index(0), deviceAddress{}, id{}, name{}, active(false), lastValue{}
   { /* no code */ }
+};
 
-  bool getEnabled() const { return _enabled; }
-  bool setEnabled(bool enabled) { _modified = true; _enabled = enabled; return true;}
+#define MAX_NUM_SENSORS 10
+int16_t numAllSensors = 0;
+Sensor allSensors[MAX_NUM_SENSORS];
 
-  Assignment getAssignment() const { return _assignment; };
-  bool setAssignment(Assignment assignment) {
-    _modified = true;
-    _assignment = assignment;
-    return true;
+struct ConfigSensors {
+  bool patch(char const * jsonString) {
+    // TODO: move in patching from web server code (which was accessing one sensor at a time)
+    return false; // TODO: implement
   }
-  bool setAssignment(const char* str) {
-    if (strcmp(str, "static") == 0) {
-      _assignment = Assignment::STATIC;
-    } else if (strcmp(str, "dhcp") == 0) {
-      _assignment = Assignment::DHCP;
-    } else {
-      return false;
-    }
-    _modified = true;
-    return true;
-  }
-
-  IPAddress const & getStaticIp() const { return _staticIp; }
-  bool setStaticIp(String const & newIP) { return setIpIfValid(newIP, _staticIp); }
-
-  IPAddress const & getStaticGateway() const { return _staticGateway; }
-  bool setStaticGateway(String const & newIP) { return setIpIfValid(newIP, _staticGateway); }
-
-  IPAddress const & getStaticSubnet() const { return _staticSubnet; }
-  bool setStaticSubnet(String const & newIP) { return setIpIfValid(newIP, _staticSubnet); }
-
-  const char* getSsid() const { return _ssid; }
-  bool setSsid(String const & str)
-  {
-    if (str.length() < 1 || str.length() >= sizeof(_ssid))
-    {
-      return false;
-    }
-    strncpy(_ssid, str.c_str(), sizeof(_ssid));
-    _modified = true;
-    return true;
-  }
-
-  const char* getPassword() const { return _password; }
-  bool setPassword(String const & str)
-  {
-    if (str.length() >= sizeof(_password))
-    {
-      return false;
-    }
-    strncpy(_password, str.c_str(), sizeof(_password));
-    _modified = true;
-    return true;
-  }
-
-  bool isModified() const { return _modified; };
-
-  /** Save values to flash */
   bool save()
   {
-    String ip = _staticIp.toString();
-    String gateway = _staticGateway.toString();
-    String subnet = _staticSubnet.toString();
-    
-    StaticJsonDocument<512> json;
-    json["enabled"] = _enabled;
-    json["assignment"] = (_assignment == Assignment::DHCP) ? "dhcp":"static";
-    json["ssid"] = _ssid;
-    json["password"] = _password;
-    JsonObject staticStuff = json.createNestedObject("static");
-    staticStuff["ip"] = ip.c_str();
-    staticStuff["gateway"] = gateway.c_str();
-    staticStuff["subnet"] = subnet.c_str();
-
-    char response[512] = {};
-    size_t toWrite = serializeJson(json, response, sizeof(response));
-
-    if (!toWrite || toWrite >= sizeof(response))
+    String s = R"EOF({"sensors":[)EOF";
+    for (int i = 0; i < numAllSensors; i++)
     {
-      Serial.println("too much");
-      return false; 
+      if (i != 0) { s += ", "; }
+      s += sensorToString(i);
     }
-
-    Serial.print("Writing: ");
-    Serial.println(response);
-
-    File configFile = SPIFFS.open("/config/wifi/network", "w");
+    s += "]}\n";
+    
+    File configFile = SPIFFS.open("/config/sensors", "w");
     if (!configFile) {
       Serial.println("file open failed");
       return false;
     }
 
-    size_t written = configFile.println(response);
+    size_t written = configFile.println(s.c_str());
     if (!written) {
       Serial.println("not written");
       configFile.close();
@@ -420,24 +155,24 @@ struct ConfigNetwork
     return true;
   }
 
-  /** Load values from flash */
-  bool load()
-  {
-    File configFile = SPIFFS.open("/config/wifi/network", "r");
+  bool load() {
+    // This will be a bit odd, as we populate the detected ones, and then patch them with saved names and "active" flags from flash
+    populateAllSensors();
+
+    File configFile = SPIFFS.open("/config/sensors", "r");
     if (!configFile) {
       Serial.println("not found");
       return false;
     }
   
     size_t size = configFile.size();
-    if (size > 1024) {
+    if (size > 2048) {
       Serial.println("too large");
       return false;
     }
   
     std::unique_ptr<char[]> buf(new char[size]);
     configFile.readBytes(buf.get(), size);
-    Serial.printf("Network object: %s\n", buf.get());
     configFile.close();
   
     StaticJsonDocument<512> json;
@@ -446,276 +181,47 @@ struct ConfigNetwork
       Serial.println("deserialize fail");
       return false;
     }
-    {
-      char const* keys[] = {"enabled", "assignment", "ssid", "password", "static", nullptr};
-      char const** it = keys;
-      while (*it) {
-        if (!json.containsKey(*it)) {
-          Serial.printf("missing key %s", *it);
-          return false;
-        }
-        it++;
-      }
-    }
 
-    JsonObject staticStuff = json["static"];
+    if (json.containsKey("sensors") && json["sensors"].is<JsonArray>())
     {
-      char const* keys[] = {"ip", "gateway", "subnet", nullptr};
-      char const** it = keys;
-      while (*it) {
-        if (!staticStuff.containsKey(*it)) {
-          Serial.printf("missing key 'static.%s'\n", *it);
-          return false;
-        }
-        it++;
-      }
-    }
-    
-    ConfigNetwork next;
-    if (next.setEnabled(json["enabled"].as<int>()) &&
-        next.setAssignment(json["assignment"].as<const char*>()) &&
-        next.setSsid(json["ssid"]) &&
-        next.setPassword(json["password"]) &&
-        next.setStaticIp(staticStuff["ip"]) &&
-        next.setStaticGateway(staticStuff["gateway"]) &&
-        next.setStaticSubnet(staticStuff["subnet"]))
-    {
-      next._modified = false;
-      *this = next;
-      return true;
-    }
-    Serial.println("malformed?");
-    return false;
-  }
-
-  /** Update zero or more elements provided in json input
-      @return true if validation OK and data (if any) updated. On error, no fields are updated
-   */
-  bool patch(char const * jsonString)
-  {
-    Serial.printf("patching network using '%s'\n", jsonString);
-    StaticJsonDocument<512> root;
-    DeserializationError error = deserializeJson(root, jsonString);
-    if (error) {
-      Serial.println("deserial err");
-      return false;
-    }
-    
-    char const* keys[] = {"enabled", "assignment", "ssid", "password", "static", nullptr};
-    for (JsonPair const & kv : root.as<JsonObject>())
-    {
-      char const** it = keys;
-      bool currentKeyValid = false;
-      while (*it) {
-        bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
-        bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
-        bool isInt = kv.value().is<int>();
-        bool isObject = kv.value().is<JsonObject>();
-
-        // exceptions
-        bool isEnableKeyValid = (strcmp(kv.key().c_str(), "enabled") == 0) && isInt;
-        if ((strcmp(kv.key().c_str(), "static") == 0) && isObject) {
-          char const* keys[] = {"ip", "gateway", "subnet", nullptr};
-          JsonObject staticStuff = root["static"];
-          for (JsonPair const & kv : staticStuff)
-          {
-            char const** it = keys;
-            bool currentStaticKeyValid = false;
-            while (*it) {
-              bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
-              bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
-              if (keyMatch && isString)
-              {
-                currentStaticKeyValid = true;
-                break;
-              }
-              it++;
-            }
-            if (!currentStaticKeyValid) {
-              Serial.printf("invalid key static.%s: ", kv.key().c_str());
-              return false;
-            }
+      JsonArray arr = json["sensors"];
+      for (JsonObject sensor : arr)
+      {
+        char const* keys[] = {"id", "name", "active", nullptr};
+        char const** it = keys;
+        while (*it) {
+          if (!sensor.containsKey(*it)) {
+            Serial.printf("missing key sensor[].%s", *it);
+            return false;
           }
-          currentKeyValid = true;
-          break;
+          it++;
         }
-        
-        if (isEnableKeyValid || (keyMatch && isString))
+
+        for (int i = 0; i < numAllSensors; i++)
         {
-          currentKeyValid = true;
-          break;
+          if (strncasecmp(sensor["id"].as<const char*>(), allSensors[i].id, sizeof(allSensors[i].id)) == 0) // TODO: should this be case sensitive?
+          {
+            allSensors[i].active = sensor["active"].as<int>();
+            strncpy(allSensors[i].name, sensor["name"].as<const char*>(), sizeof(allSensors[i].name));
+            break;
+          }
         }
-        it++;
-      }
-      if (!currentKeyValid) {
-        Serial.printf("invalid key %s: ", kv.key().c_str());
-        return false;
       }
     }
-
-    ConfigNetwork next = *this;
-    if (root.containsKey("enabled") && !next.setEnabled(root["enabled"].as<int>())) { return false; }
-    if (root.containsKey("assignment") && !next.setAssignment(root["assignment"].as<char*>())) { return false; }
-    if (root.containsKey("ssid") && !next.setSsid(root["ssid"].as<char*>())) { return false; }
-    if (root.containsKey("password") && !next.setPassword(root["password"].as<char*>())) { return false; }
-    if (root.containsKey("static")) {
-      JsonObject const staticStuff = root["static"].as<JsonObject>();
-      if (staticStuff.containsKey("ip") && !next.setStaticIp(staticStuff["ip"].as<char*>())) { return false; }
-      if (staticStuff.containsKey("gateway") && !next.setStaticGateway(staticStuff["gateway"].as<char*>())) { return false; }
-      if (staticStuff.containsKey("subnet") && !next.setStaticSubnet(staticStuff["subnet"].as<char*>())) { return false; }
-    }
-
-    next._modified = _modified;
-    if (next == *this)
-    {
-      return true;
-    }
-    *this = next;
-    _modified = true;
+    _modified = false;
     return true;
   }
-
-  bool operator==(ConfigNetwork const& other) const {
-    return other._enabled == _enabled &&
-           other._assignment == _assignment &&
-           other._staticIp == _staticIp &&
-           other._staticGateway == _staticGateway &&
-           other._staticSubnet == _staticSubnet &&
-           other._ssid == _ssid &&
-           other._password == _password;
-  }
-
-private:
-  bool setIpIfValid(String const & str, IPAddress &ip) {
-    bool ok = onlySetIpIfValid(str, ip);
-    if (ok) {
-      _modified = true;
-    }
-    return ok;
-  }
-
-  bool _enabled;
-  Assignment _assignment;
-
-  IPAddress _staticIp;
-  IPAddress _staticGateway; ///< Quite useless, since we don't route traffic to another net
-  IPAddress _staticSubnet;
-
-  /** WPA2 standard allows a maximum of 32 chars (although some routers only allow 31 char) */
-  char _ssid[33];
-
-  /** Passwords are by the WPA2 standard limited to be at least 8 characters long,
-      and are not allowed to be longer than 63 characters. Leave empty for an open network. */
-  char _password[64];
-
+  bool isModified() const { return _modified; }
+  private:
   bool _modified;
-} configNetwork;
-
-
-
-bool serveFromSpiffs(String const & uri, const char* contenttype="text/html");
-String deviceAddressToString(DeviceAddress const & da);
-String sensorToString(int allSensorIndex);
-
-
-template<class T, int N>
-class CircularBuffer {
-public:
-  CircularBuffer() : _readPos(0), _writePos(0), _size(0) {
-    
-  }
-  ~CircularBuffer() {
-    // NO CODE
-  }
-  void fill(T value) // TODO: consider using ref (and overload it for rvalues)
+  String sensorToString(int allSensorIndex)
   {
-    _size = N;
-    _readPos = 0;
-    _writePos = 0;
-    for (int i = 0; i < N; i++)
-    {
-      _data[i] = value;
-    }
+    String s = "{\"id\":\"" + deviceAddressToString(allSensors[allSensorIndex].deviceAddress) +
+    "\", \"name\":\"" + allSensors[allSensorIndex].name +
+    "\", \"active\":" + (allSensors[allSensorIndex].active ? "1" : "0") + "}";
+    return s;
   }
-  /** @return false if no more space available */
-  bool push_back(const T& value) {
-     if (_size == N) {
-       return false;
-     }
-     _data[_writePos] = value;
-     _writePos = getNextPos(_writePos);
-     _size++;
-  }
-  void pop_front() {
-    if (_size < 1)
-    {
-      _size = 0;
-      return; // decide what to do in this error case
-    }
-    else
-    {
-      _readPos = getNextPos(_readPos);
-      _size--;
-    }
-  }
-  bool push_back_erase_if_full(const T& value) {
-     while (_size >= N) {
-       pop_front();
-     }
-     _data[_writePos] = value;
-     _writePos = getNextPos(_writePos);
-     _size++;
-  }
-  int size() const { return _size; }
-  
-  T& operator[](int pos)
-  {
-    if (pos > _size)
-    {
-      static T nullInitialized{};
-      Serial.println("ERROR: pos > size in circular buffer");
-      return nullInitialized; // todo decide what to do in this error case...
-    }
-    else
-    {
-      int offset = _readPos + pos;
-      if (offset >= N)
-        offset -= N;
-      return _data[offset];
-    }
-  }
-private:
-  int getNextPos(int currentPos)
-  {
-    if ((currentPos + 1) < N)
-      return currentPos + 1;
-    else
-      return 0;
-  }
-  T _data[N];
-  int _readPos;
-  int _writePos;
-  int _size;
-};
-
-
-
-ESP8266WebServer server(80);
-
-struct Sensor {
-  int16_t index; // sensor index as determined by DallasTemperature class
-  DeviceAddress deviceAddress;
-  char id[17];
-  char name[17];
-  bool active;
-  float lastValue;
-  Sensor() : index(0), deviceAddress{}, id{}, name{}, active(false), lastValue{}
-  { /* no code */ }
-};
-
-#define MAX_NUM_SENSORS 10
-int16_t numAllSensors = 0;
-Sensor allSensors[MAX_NUM_SENSORS];
+} configSensors;
 
 
 void populateAllSensors()
@@ -747,26 +253,6 @@ struct ServedSensor {
 
 int16_t numServedSensors = 0;
 ServedSensor servedSensors[2] = {{}, {}}; // internal compiler error if only '= {};'
-
-/*
-class RawTempToString {
-  struct Entry {
-    int16_t rawTemp;
-    char cachedRepresentation[8]; // enough to hold "-127.00" and null termination
-  }
-
-  static CircularBuffer<Entry, 16> cache; // TODO: start using this cache for conversions
-  
-  public:
-    static String convertToCelsius(int16_t raw) {
-      float deg = DallasTemperature::rawToCelsius(raw);
-      String ans(deg, 2);
-      return ans;
-    }
-
-}
-*/
-
 
 void handleSettings()
 {
@@ -937,6 +423,36 @@ void handlePersist()
   {
     // TODO: keep track of unsaved changes
     server.send(200, "application/javascript", "{\"persist_now\": 0, \"unsaved_changes\": 1}");
+  }
+  else if (server.method() == HTTP_PATCH && server.hasArg("plain"))
+  {
+    String const json = server.arg("plain");
+    
+    const size_t capacity = JSON_OBJECT_SIZE(2) + 200;
+    StaticJsonDocument<capacity> root;
+    DeserializationError error = deserializeJson(root, json.c_str());
+    
+    if (error)
+    {
+      Serial.println("Parsing failed!");
+      server.send(400, "text/plain", "ERROR"); // TODO: which status code???
+      return;
+    }
+    else 
+    {
+      if (root.containsKey("persist_now") && root["persist_now"].is<int>() && root["persist_now"].as<int>() != 0)
+      {
+        bool ok = configSensors.save();
+        if (ok)
+        {
+          server.send(200, "text/plain", "OK");
+        }
+        else
+        {
+          server.send(400, "text/plain", "ERROR saving sensors");
+        }
+      }
+    }
   }
   else
   {
@@ -1122,6 +638,8 @@ void setup()
   Serial.println( softApLoadSuccess ? "Ready" : "Failed!");
   Serial.flush();
 
+  // Setting DNS host name TODO: check which interfaces are effected.
+  WiFi.hostname(configSoftAP.getSsid());
 
   Serial.print("Loading Network config from flash ... ");
   bool networkLoadSuccess = configNetwork.load();
@@ -1264,6 +782,9 @@ void setup()
     servedSensors[1].allSensorsIndex = 1;
     allSensors[1].active = true;
   }
+
+  Serial.print("Loading saved sensor configurations ... ");
+  Serial.println(configSensors.load() ? "Ready":"Failed!");
 }
 
 String deviceAddressToString(DeviceAddress const & da)
@@ -1281,7 +802,7 @@ String deviceAddressToString(DeviceAddress const & da)
   return s;
 }
 
-void  stringToDeviceAddress(DeviceAddress da, String const & id)
+void stringToDeviceAddress(DeviceAddress da, String const & id)
 {
   da = {};
   for (int i = 0; i < 8; i++)

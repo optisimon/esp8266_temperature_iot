@@ -23,9 +23,12 @@ Settings
 
 <div id="settings">
 
+<form id="sensors-form" onsubmit="updateSensors(); return false;">
 <fieldset id="sensors">
 	<legend>Waiting for sensor settings:</legend>
 </fieldset>
+</form>
+
 
 <form id="softap-form" onsubmit="updateSoftAP(); return false;">
 <fieldset id="softap">
@@ -39,10 +42,11 @@ Settings
 </fieldset>
 </form>
 
+<!--
 <fieldset id="persist">
 	<legend>Persistence:</legend>
 </fieldset>
-
+-->
 </div>
 <script>
 
@@ -76,6 +80,12 @@ function myPatch(url, data)
 function handleClick(checkbox) {
 	myPatch("api/sensors/" + checkbox.id, {"active": checkbox.checked ? 1 : 0 });
 	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
+}
+
+function updateSensors()
+{
+	alert("WARNING: updating Sensors configuration!");
+	myPatch('api/persist', {'persist_now':1});
 }
 
 function myRefreshSensors()
@@ -115,6 +125,7 @@ function myRefreshSensors()
 			str += '</tr>\n';
 		}
 		str += '</table>\n';
+		str += '<input type="submit" value="Save Sensor information">';
 		s.innerHTML = str;
 
 		/*
@@ -142,7 +153,6 @@ function myRefreshSensors()
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
-
 
 function updateSoftAP()
 {
@@ -337,7 +347,7 @@ function myRefreshNetwork()
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
-
+/*
 function myRefreshPersist()
 {
 	var xmlhttp = new XMLHttpRequest();
@@ -369,13 +379,13 @@ function myRefreshPersist()
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
-
+*/
 function myRefresh()
 {
 	myRefreshSensors();
 	myRefreshSoftAP();
 	myRefreshNetwork();
-	myRefreshPersist();
+//	myRefreshPersist();
 }
 
 function myOnLoad()
