@@ -33,7 +33,7 @@ Settings
 </fieldset>
 </form>
 
-<form>
+<form id="network-form" onsubmit="updateNetwork(); return false;">
 <fieldset id="network">
 	<legend>Waiting for network settings:</legend>
 </fieldset>
@@ -224,6 +224,44 @@ function myRefreshSoftAP()
 	xmlhttp.send();
 }
 
+function updateNetwork()
+{
+	alert("WARNING: updating network configuration!");
+	
+	var elements = document.getElementById("network-form").elements;
+	
+	var patch = { "static": {} };
+	// Skipping validating password field for now
+	for (var i = 0, e; e = elements[i++];) {
+		if ((e.type === "text" ||
+		    (e.type==="radio" && e.checked) ||
+		    (e.type === "password" && e.value != "")
+		   ) && e.name != "" && !e.disabled)
+		{
+			if (e.name === "ip" || e.name === "gateway" || e.name === "subnet")
+			{
+				patch["static"][e.name] = e.value;
+			}
+			else
+			{
+				patch[e.name] = e.value;
+			}
+			continue;
+		}
+		if (e.name === "enabled")
+		{
+			patch["enabled"] = e.checked ? 1 : 0;
+		}
+	}
+	console.log("network want to update with: " + patch);
+	myPatch("api/wifi/network", patch);
+}
+
+function handleNetworkPasswordClick(checkbox) {
+	var p = document.getElementById("network-password-field");
+	p.disabled = !checkbox.checked;
+}
+
 function myRefreshNetwork()
 {
 	var xmlhttp = new XMLHttpRequest();
@@ -234,15 +272,60 @@ function myRefreshNetwork()
 
 		var s = document.getElementById("network")
 		var str = '<legend>Network settings:</legend>\n<table>\n' +
-		'<tr> <th>Parameter</th> <th>Value</th> <th>Actions</th> </tr>';
+		'<tr> <th>Parameter</th> <th>Value</th> </tr>';
 
 		for (var key in myArr) {
 			if (myArr.hasOwnProperty(key)) {
-				str += '<tr>\n<td>' + key + '</td><td>' + myArr[key] +
-				       '</td><td></td></tr>\n';
+				str += '<tr>\n<td>' + key + '</td><td>';
+
+				if (key == "ssid")
+				{
+					str += '<input type="text" minlength="1" maxlength="32" size="32" required name="ssid" value="' + myArr[key] + '">';
+				}
+				else if (key == "password")
+				{
+					str += '<input id="network-password-field" type="password" disabled minlength="8" maxlength="63" size="63" required name="password">' +
+					       '<input type="checkbox" id="network-update-password" onclick="handleNetworkPasswordClick(this);">' + 
+					       '<label for="network-update-password">Change password</label>\n';
+				}
+				else if (key === "static") {
+					for (var key in myArr["static"]) {
+						if (key == "ip" || key == "gateway" || key == "subnet")
+						{
+							// TODO: https://stackoverflow.com/questions/49306970/correct-input-type-for-ip-address
+							str += key + ': <input type="text" minlength="7" maxlength="15" size="15" pattern="^([0-9]{1,3}\\.){3}[0-9]{1,3}$" required name="' + key + '" value="' + myArr["static"][key] + '"><br>\n';
+						}
+					}
+				}
+				else if (key === "enabled")
+				{
+					str += '<input type="checkbox" id="network-enabled" name="enabled" ' + (myArr["enabled"] ? "checked":"") +
+					       '><label for="network-enabled">Connect to external WiFi network</label>'
+				}
+				else if (key === "assignment")
+				{
+					var isDHCP = myArr[key] === "dhcp";
+					str += '<input type="radio" id="network-assignment-dhcp" name="assignment" value="dhcp" ' +
+					       (isDHCP ? "checked":"") +
+					       '><label for="network-assignment-dhcp">Use dynamic IP (DHCP)</label><br>\n';
+					
+					str += '<input type="radio" id="network-assignment-static" name="assignment" value="static" ' +
+					       (isDHCP ? "":"checked") +
+					       '><label for="network-assignment-static">Use static IP</label>\n';
+				}
+				else if (key === "assigned")
+				{
+					//TODO: should these be shown at all??? (they are not part of the settings, and I don't think I'll continue sending them in the future
+				}
+				else
+				{
+					str += myArr[key];
+				}
+				str += '</td></tr>\n';
 			}
 		}
 		str += '</table>\n';
+		str += '<input type="submit" value="Save external network settings">';
 		s.innerHTML = str;
 	}
 	else if (this.status == 404)

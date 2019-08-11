@@ -1,9 +1,21 @@
+// using gdb!
+// https://arduino-esp8266.readthedocs.io/en/latest/gdb.html
+
+// esp8266 documentation
+//https://github.com/esp8266/Arduino#documentation
+
 // Scan for other access points:
 // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/scan-class.html
+
 
 // softAP and station mode simultaneously
 // https://github.com/esp8266/Arduino/issues/119#issuecomment-157418957
 // https://stackoverflow.com/questions/47345141/esp8266-wifi-ap-sta-mode
+// https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
+
+// Important implications on only one wifi channel:
+// https://bbs.espressif.com/viewtopic.php?t=324
+
 
 // Sending replies using multiple calls to the web server (to preserve RAM):
 // https://github.com/esp8266/Arduino/issues/3205
@@ -15,17 +27,19 @@
 //https://github.com/pellepl/spiffs/wiki/FAQ
 
 // TODO: split program up (include .h and .cpp-files into the sketch, but edit elsewhere?)
-
+// TODO: Should we do something when an interface disconnects / reconnects: https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
+// TODO: warn if softAP and network overlaps (web server only serves on one interface in that case)
+// TODO: once connecting to other network, store channel and use it for softap only as well.
 // TODO: Report values for multiple sensors? (might be limited by RAM)?
 // TODO: store name of sensors permanently in the flash file system?
 // TODO: store sensors to view in flash filesystem + make them easy to select?
 // TODO: Cache results for json object ?
-// TODO: Support logging into an already available network either as an option, or when running as softAP)
 // TODO: break down sending of different sensors into separate calls to the web server (to be nicer on RAM). see https://github.com/esp8266/Arduino/issues/3205
 #include <DallasTemperature.h>
 
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
 #include "FS.h"
 
@@ -59,8 +73,8 @@ bool onlySetIpIfValid(String const & str, IPAddress &ip)
 struct ConfigSoftAP
 {
   ConfigSoftAP() : 
-    _ip(192,168,1,1),
-    _gateway(192,168,1,1),
+    _ip(192,168,0,1),
+    _gateway(192,168,0,1),
     _subnet(255,255,255,0),
     _ssid{"TestAP"},
     _password{"testtest"},
@@ -233,9 +247,10 @@ struct ConfigSoftAP
 
     if (next == *this)
     {
-      next._modified = false;
+      return true;
     }
     *this = next;
+    _modified = true;
     return true;
   }
 
@@ -269,6 +284,333 @@ private:
 
   bool _modified;
 } configSoftAP;
+
+/*
+struct IJsonConfig()
+{
+  virtual bool patch(char const * jsonString) = 0;
+  virtual bool save() = 0;
+  virtual bool load() = 0;
+  virtual bool isModified() const = 0;  
+  virtual const char* getDefaultKeys() = 0;
+}
+
+bool areAllKeysKnownAndOfCorrectType(JsonDocument const & patch, const char* defaults)
+{
+  DynamicJsonDocument def(4*strlen(defaults)); // TODO: better heuristics...
+  deserializeJson(def, defaults);
+
+  check that all keys in patch exist in defaults and have the correct type
+}
+*/
+struct ConfigNetwork
+{
+  enum class Assignment { STATIC = 0, DHCP = 1 };
+  ConfigNetwork() : 
+    _enabled(false),
+    _assignment(Assignment::DHCP),
+    _staticIp(192,168,1,1),
+    _staticGateway(192,168,1,1),
+    _staticSubnet(255,255,255,0),
+    _ssid{"HouseNetwork"},
+    _password{"testtest"},
+    _modified(false)
+  { /* no code */ }
+
+  bool getEnabled() const { return _enabled; }
+  bool setEnabled(bool enabled) { _modified = true; _enabled = enabled; return true;}
+
+  Assignment getAssignment() const { return _assignment; };
+  bool setAssignment(Assignment assignment) {
+    _modified = true;
+    _assignment = assignment;
+    return true;
+  }
+  bool setAssignment(const char* str) {
+    if (strcmp(str, "static") == 0) {
+      _assignment = Assignment::STATIC;
+    } else if (strcmp(str, "dhcp") == 0) {
+      _assignment = Assignment::DHCP;
+    } else {
+      return false;
+    }
+    _modified = true;
+    return true;
+  }
+
+  IPAddress const & getStaticIp() const { return _staticIp; }
+  bool setStaticIp(String const & newIP) { return setIpIfValid(newIP, _staticIp); }
+
+  IPAddress const & getStaticGateway() const { return _staticGateway; }
+  bool setStaticGateway(String const & newIP) { return setIpIfValid(newIP, _staticGateway); }
+
+  IPAddress const & getStaticSubnet() const { return _staticSubnet; }
+  bool setStaticSubnet(String const & newIP) { return setIpIfValid(newIP, _staticSubnet); }
+
+  const char* getSsid() const { return _ssid; }
+  bool setSsid(String const & str)
+  {
+    if (str.length() < 1 || str.length() >= sizeof(_ssid))
+    {
+      return false;
+    }
+    strncpy(_ssid, str.c_str(), sizeof(_ssid));
+    _modified = true;
+    return true;
+  }
+
+  const char* getPassword() const { return _password; }
+  bool setPassword(String const & str)
+  {
+    if (str.length() >= sizeof(_password))
+    {
+      return false;
+    }
+    strncpy(_password, str.c_str(), sizeof(_password));
+    _modified = true;
+    return true;
+  }
+
+  bool isModified() const { return _modified; };
+
+  /** Save values to flash */
+  bool save()
+  {
+    String ip = _staticIp.toString();
+    String gateway = _staticGateway.toString();
+    String subnet = _staticSubnet.toString();
+    
+    StaticJsonDocument<512> json;
+    json["enabled"] = _enabled;
+    json["assignment"] = (_assignment == Assignment::DHCP) ? "dhcp":"static";
+    json["ssid"] = _ssid;
+    json["password"] = _password;
+    JsonObject staticStuff = json.createNestedObject("static");
+    staticStuff["ip"] = ip.c_str();
+    staticStuff["gateway"] = gateway.c_str();
+    staticStuff["subnet"] = subnet.c_str();
+
+    char response[512] = {};
+    size_t toWrite = serializeJson(json, response, sizeof(response));
+
+    if (!toWrite || toWrite >= sizeof(response))
+    {
+      Serial.println("too much");
+      return false; 
+    }
+
+    Serial.print("Writing: ");
+    Serial.println(response);
+
+    File configFile = SPIFFS.open("/config/wifi/network", "w");
+    if (!configFile) {
+      Serial.println("file open failed");
+      return false;
+    }
+
+    size_t written = configFile.println(response);
+    if (!written) {
+      Serial.println("not written");
+      configFile.close();
+      return false;
+    }
+    configFile.close();
+
+    _modified = false;
+    return true;
+  }
+
+  /** Load values from flash */
+  bool load()
+  {
+    File configFile = SPIFFS.open("/config/wifi/network", "r");
+    if (!configFile) {
+      Serial.println("not found");
+      return false;
+    }
+  
+    size_t size = configFile.size();
+    if (size > 1024) {
+      Serial.println("too large");
+      return false;
+    }
+  
+    std::unique_ptr<char[]> buf(new char[size]);
+    configFile.readBytes(buf.get(), size);
+    Serial.printf("Network object: %s\n", buf.get());
+    configFile.close();
+  
+    StaticJsonDocument<512> json;
+    DeserializationError error = deserializeJson(json, buf.get());
+    if (error) {
+      Serial.println("deserialize fail");
+      return false;
+    }
+    {
+      char const* keys[] = {"enabled", "assignment", "ssid", "password", "static", nullptr};
+      char const** it = keys;
+      while (*it) {
+        if (!json.containsKey(*it)) {
+          Serial.printf("missing key %s", *it);
+          return false;
+        }
+        it++;
+      }
+    }
+
+    JsonObject staticStuff = json["static"];
+    {
+      char const* keys[] = {"ip", "gateway", "subnet", nullptr};
+      char const** it = keys;
+      while (*it) {
+        if (!staticStuff.containsKey(*it)) {
+          Serial.printf("missing key 'static.%s'\n", *it);
+          return false;
+        }
+        it++;
+      }
+    }
+    
+    ConfigNetwork next;
+    if (next.setEnabled(json["enabled"].as<int>()) &&
+        next.setAssignment(json["assignment"].as<const char*>()) &&
+        next.setSsid(json["ssid"]) &&
+        next.setPassword(json["password"]) &&
+        next.setStaticIp(staticStuff["ip"]) &&
+        next.setStaticGateway(staticStuff["gateway"]) &&
+        next.setStaticSubnet(staticStuff["subnet"]))
+    {
+      next._modified = false;
+      *this = next;
+      return true;
+    }
+    Serial.println("malformed?");
+    return false;
+  }
+
+  /** Update zero or more elements provided in json input
+      @return true if validation OK and data (if any) updated. On error, no fields are updated
+   */
+  bool patch(char const * jsonString)
+  {
+    Serial.printf("patching network using '%s'\n", jsonString);
+    StaticJsonDocument<512> root;
+    DeserializationError error = deserializeJson(root, jsonString);
+    if (error) {
+      Serial.println("deserial err");
+      return false;
+    }
+    
+    char const* keys[] = {"enabled", "assignment", "ssid", "password", "static", nullptr};
+    for (JsonPair const & kv : root.as<JsonObject>())
+    {
+      char const** it = keys;
+      bool currentKeyValid = false;
+      while (*it) {
+        bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
+        bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
+        bool isInt = kv.value().is<int>();
+        bool isObject = kv.value().is<JsonObject>();
+
+        // exceptions
+        bool isEnableKeyValid = (strcmp(kv.key().c_str(), "enabled") == 0) && isInt;
+        if ((strcmp(kv.key().c_str(), "static") == 0) && isObject) {
+          char const* keys[] = {"ip", "gateway", "subnet", nullptr};
+          JsonObject staticStuff = root["static"];
+          for (JsonPair const & kv : staticStuff)
+          {
+            char const** it = keys;
+            bool currentStaticKeyValid = false;
+            while (*it) {
+              bool keyMatch = strcmp(kv.key().c_str(), *it) == 0;
+              bool isString = kv.value().is<char const*>() || kv.value().is<char*>();
+              if (keyMatch && isString)
+              {
+                currentStaticKeyValid = true;
+                break;
+              }
+              it++;
+            }
+            if (!currentStaticKeyValid) {
+              Serial.printf("invalid key static.%s: ", kv.key().c_str());
+              return false;
+            }
+          }
+          currentKeyValid = true;
+          break;
+        }
+        
+        if (isEnableKeyValid || (keyMatch && isString))
+        {
+          currentKeyValid = true;
+          break;
+        }
+        it++;
+      }
+      if (!currentKeyValid) {
+        Serial.printf("invalid key %s: ", kv.key().c_str());
+        return false;
+      }
+    }
+
+    ConfigNetwork next = *this;
+    if (root.containsKey("enabled") && !next.setEnabled(root["enabled"].as<int>())) { return false; }
+    if (root.containsKey("assignment") && !next.setAssignment(root["assignment"].as<char*>())) { return false; }
+    if (root.containsKey("ssid") && !next.setSsid(root["ssid"].as<char*>())) { return false; }
+    if (root.containsKey("password") && !next.setPassword(root["password"].as<char*>())) { return false; }
+    if (root.containsKey("static")) {
+      JsonObject const staticStuff = root["static"].as<JsonObject>();
+      if (staticStuff.containsKey("ip") && !next.setStaticIp(staticStuff["ip"].as<char*>())) { return false; }
+      if (staticStuff.containsKey("gateway") && !next.setStaticGateway(staticStuff["gateway"].as<char*>())) { return false; }
+      if (staticStuff.containsKey("subnet") && !next.setStaticSubnet(staticStuff["subnet"].as<char*>())) { return false; }
+    }
+
+    next._modified = _modified;
+    if (next == *this)
+    {
+      return true;
+    }
+    *this = next;
+    _modified = true;
+    return true;
+  }
+
+  bool operator==(ConfigNetwork const& other) const {
+    return other._enabled == _enabled &&
+           other._assignment == _assignment &&
+           other._staticIp == _staticIp &&
+           other._staticGateway == _staticGateway &&
+           other._staticSubnet == _staticSubnet &&
+           other._ssid == _ssid &&
+           other._password == _password;
+  }
+
+private:
+  bool setIpIfValid(String const & str, IPAddress &ip) {
+    bool ok = onlySetIpIfValid(str, ip);
+    if (ok) {
+      _modified = true;
+    }
+    return ok;
+  }
+
+  bool _enabled;
+  Assignment _assignment;
+
+  IPAddress _staticIp;
+  IPAddress _staticGateway; ///< Quite useless, since we don't route traffic to another net
+  IPAddress _staticSubnet;
+
+  /** WPA2 standard allows a maximum of 32 chars (although some routers only allow 31 char) */
+  char _ssid[33];
+
+  /** Passwords are by the WPA2 standard limited to be at least 8 characters long,
+      and are not allowed to be longer than 63 characters. Leave empty for an open network. */
+  char _password[64];
+
+  bool _modified;
+} configNetwork;
+
 
 
 bool serveFromSpiffs(String const & uri, const char* contenttype="text/html");
@@ -566,10 +908,26 @@ void handleWifiNetwork()
   {
     returnConfigReplaceField("/config/wifi/network", "password", "********");
   }
+  else if (server.method() == HTTP_PATCH && server.hasArg("plain"))
+  {
+    String const json = server.arg("plain");
+
+    bool ok = configNetwork.patch(json.c_str());
+    if (ok && configNetwork.isModified()) {
+      ok = configNetwork.save();
+    }
+    if (ok)
+    {
+      server.send(200, "text/plain", "OK");
+    }
+    else 
+    {
+      server.send(400, "text/plain", "ERROR"); // TODO: which status code???
+    }
+  }
   else
   {
-    // TODO: implement
-    sendError("only HTTP_GET supported");
+    sendError("???");
   }
 }
 
@@ -740,6 +1098,16 @@ void handleSensors_24h()
 
 void setup()
 {
+  // Do not automatically connect on power on to the last used access point.
+  // Do not start things automatically + reduce wear on flash
+  // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
+  // https://github.com/esp8266/Arduino/issues/1054
+  WiFi.persistent(false);
+  
+  WiFi.disconnect();
+  WiFi.softAPdisconnect();
+  WiFi.setAutoConnect(false);
+    
   Serial.begin(115200);
   while(!Serial)
   {
@@ -755,6 +1123,53 @@ void setup()
   Serial.flush();
 
 
+  Serial.print("Loading Network config from flash ... ");
+  bool networkLoadSuccess = configNetwork.load();
+  Serial.println( networkLoadSuccess ? "Ready" : "Failed!");
+  Serial.flush();
+
+  // TODO: connect to wifi network etc...
+  if (configNetwork.getEnabled())
+  {
+    WiFi.setAutoReconnect(true); // attempt to reconnect to an access point in case it is disconnected.
+    
+    Serial.print("Setting network config for \"");
+    Serial.print(configNetwork.getSsid());
+    Serial.print("\" ... ");
+    bool networkConfigSuccess = false;
+    if (configNetwork.getAssignment() == ConfigNetwork::Assignment::STATIC)
+    {
+      networkConfigSuccess = WiFi.config(
+        configNetwork.getStaticIp(),
+        configNetwork.getStaticGateway(),
+        configNetwork.getStaticSubnet()
+      ); // TODO: consider adding custom DNS settings as well
+    } else {
+      IPAddress zeroIp(0,0,0,0);
+      networkConfigSuccess = WiFi.config(zeroIp, zeroIp, zeroIp); // TODO: consider adding custom DNS settings as well
+    }    
+    Serial.println( networkConfigSuccess ? "Ready" : "Failed!");
+    Serial.flush();
+
+    if (networkConfigSuccess)
+    {
+      Serial.printf("Connecting to \"%s\" ... ", configNetwork.getSsid());
+      bool tmp = WiFi.begin(configNetwork.getSsid(), configNetwork.getPassword());
+      delay(50); // TODO: here since other people had it... ()
+      switch(WiFi.waitForConnectResult())
+      {
+        case WL_CONNECTED: Serial.println("Connected"); break;
+        case WL_NO_SSID_AVAIL: Serial.println("SSID cannot be reached"); break;
+        case WL_CONNECT_FAILED: Serial.println("Connect failed (password incorrect?)"); break;
+        case WL_IDLE_STATUS: Serial.println("when Wi-Fi is in process of changing between statuses"); break;
+        case WL_DISCONNECTED: Serial.println("module not in station mode"); break;
+        case -1: Serial.println("Timed out"); break;
+        default: Serial.println("Failed!"); break;
+      }
+    }
+  }
+
+// Good documentation https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/station-class.html
 // More info about softAP WIFI configuration at https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/soft-access-point-class.html
 // More info about strange softAP password requirements at https://github.com/esp8266/Arduino/issues/1141
   Serial.print("Setting soft-AP configuration ... ");
@@ -777,6 +1192,10 @@ void setup()
   Serial.println( softApStartSuccess ? "Ready" : "Failed");
   Serial.flush();
 
+  // TODO: should this be configurable (might confuse more people)
+  Serial.printf("Starting mDNS responder (as \"%s.local\")... ", configSoftAP.getSsid()); // using that on the remote network as well
+  Serial.println(MDNS.begin(configSoftAP.getSsid()) ? "Ready" : "Failed");
+
   server.on("/", handleRoot);
   //server.on("/main.html", handleRoot);
   //server.on("/spiffs_test.html", spiffsTest);
@@ -790,8 +1209,13 @@ void setup()
   server.on("/api/persist", handlePersist);
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.print("Server listening on: ");
-  Serial.println(WiFi.softAPIP());
+  Serial.print("Server listening on: softAP:");
+  Serial.print(WiFi.softAPIP());
+  Serial.print(", STA:");
+  Serial.print(WiFi.localIP());
+  Serial.println("");
+
+  MDNS.addService("http", "tcp", 80);
 
   for (int i = 0; i < 2; i++)
   {
@@ -916,6 +1340,7 @@ void loop()
     // While busy waiting for next reading - handle web requests
     do
     {
+      MDNS.update(); // NOTE are some bugs in : https://github.com/esp8266/Arduino/issues/4790
       server.handleClient();
       delay(20); // TODO: is this needed??
       //            Working combination is 500ms / reading + 10ms here. (ap most often there)

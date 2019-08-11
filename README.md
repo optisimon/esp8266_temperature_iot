@@ -4,6 +4,8 @@ Nowadays using SPIFFS (flash) for storing configuration files as well as web pag
 They need to be flashed separately for the softwaare to work.
 
 === Summary of settings in the arduino environment which seem relevant: ===
+
+Arduino 1.8.9 settings:
 NodeMCU 1.0 (ESP-12E Module)
 Flash Size: 4M (1M SPIFFS)
 
@@ -135,13 +137,16 @@ TODO: NOT DECIDED YET (since this is a slow operation?)
   "assignment": "dhcp|static",
   "ssid": "HouseNetwork",
   "password": "********",
-  "ip": "192.168.1.1",
-  "gateway": "192.168.1.1",
-  "subnet": "255.255.255.0",
-  
-  "assigned_ip": "192.168.1.1",
-  "assigned_gateway": "192.168.1.1",
-  "assigned_subnet": "255.255.255.0",
+  "static": {
+    "ip": "192.168.1.1",
+    "gateway": "192.168.1.1",
+    "subnet": "255.255.255.0"
+  },
+  "assigned": {
+    "ip": "192.168.1.1",
+    "gateway": "192.168.1.1",
+    "subnet": "255.255.255.0"
+  }
 }
 
 ==== /api/persist ====
@@ -174,4 +179,18 @@ Have these files:
       "active": 0
     }
   ]
+}
+
+==== /config/wifi/network ====
+
+{
+  "enabled": 1,
+  "assignment": "dhcp|static",
+  "ssid": "HouseNetwork",
+  "password": "********",
+  "static": {
+    "ip": "192.168.1.1",
+    "gateway": "192.168.1.1",
+    "subnet": "255.255.255.0"
+  }
 }
