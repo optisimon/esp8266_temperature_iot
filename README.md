@@ -3,7 +3,7 @@ Nowadays using SPIFFS (flash) for storing configuration files as well as web pag
 
 They need to be flashed separately for the softwaare to work.
 
-=== Summary of settings in the arduino environment which seem relevant: ===
+## Summary of settings in the arduino environment which seem relevant: ##
 
 Arduino 1.8.9 settings:
 NodeMCU 1.0 (ESP-12E Module)
@@ -13,12 +13,13 @@ Installed libraries:
 ArduinoJson 6.11.3
 DallasTemperature 3.8.0
 OneWire 2.3.4
+ADS1X15 by Adafruit Version 1.0.1
 
 Installed tools:
 https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
 
 
-=== Summary of json objects available: ===
+### Summary of json objects available: ###
 
 GET returns status code 200 on success
 PATCH returns status code 200 on success (and the text OK)

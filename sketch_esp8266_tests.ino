@@ -43,12 +43,21 @@
 #include <ESP8266mDNS.h>
 #include <ArduinoJson.h>
 #include <FS.h>
+#include <Wire.h>
+#include <Adafruit_ADS1015.h>
 
 #include "CircularBuffer.hpp"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
 const unsigned long time_between_24h_readings_ms = 60000UL;
 const int oneWireBus = 4; // D2 is the same as gpio4 on my board...
+
+const int I2C_SCL = 5; // D1 
+const int I2C_SDA = 13; // D7
+const int16_t I2C_SLAVE = 0x48;
+
+Adafruit_ADS1115 ads;
+
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
 
@@ -480,6 +489,8 @@ void handleSensors_24h()
 
 void setup()
 {
+  Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus (address optional for master)
+
   // Do not automatically connect on power on to the last used access point.
   // Do not start things automatically + reduce wear on flash
   // https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
@@ -706,6 +717,30 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
     Serial.print(" ");
   }
   Serial.println();
+}
+
+void readAnalogSensor0(bool shouldRead1h, bool shouldRead24h)
+{
+    // READ ADC AND CONVERT TO TEMPERATURE
+    int adc_in = ads.readADC_SingleEnded(0);
+    float voltage = adc_in * 0.1875e-3; // since default gain 2/3
+    float res = voltage*10e3 / (3.3 - voltage);
+    const float B = 3950;
+    const float R0 = 10000; // NTC resistor, 10k @ 25 deg C
+    const float T0 = 273.15 + 25;
+
+    float temp = B / log(res / (R0*expf(-B/T0))) - 273.15;
+
+    configSensors.allSensors[0].lastValue = temp;
+
+    Serial.printf("ADC: raw=%d, V=%1.4f V, res=%5.1f Ohm, temp=%2.2f C\n", adc_in, voltage, res, temp);
+
+    if (shouldRead1h) {
+      servedSensors[0].readings_1h.push_back_erase_if_full(temp);
+    }
+    if (shouldRead24h) {
+      servedSensors[0].readings_24h.push_back_erase_if_full(temp);
+    }
 }
 
 void loop()
