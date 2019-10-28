@@ -107,143 +107,8 @@ String sensorToString(int allSensorIndex);
 
 ESP8266WebServer server(80);
 
-struct Sensor {
-  int16_t index; ///< sensor index as determined by DallasTemperature class
-  DeviceAddress deviceAddress;
-  char id[17];
-  char name[17];
-  bool active;
-  float lastValue; ///< not persisted
-  Sensor() : index(0), deviceAddress{}, id{}, name{}, active(false), lastValue{}
-  { /* no code */ }
-};
-
-#define MAX_NUM_SENSORS 10
-int16_t numAllSensors = 0;
-Sensor allSensors[MAX_NUM_SENSORS];
-
-struct ConfigSensors {
-  bool patch(char const * jsonString) {
-    // TODO: move in patching from web server code (which was accessing one sensor at a time)
-    return false; // TODO: implement
-  }
-  bool save()
-  {
-    String s = R"EOF({"sensors":[)EOF";
-    for (int i = 0; i < numAllSensors; i++)
-    {
-      if (i != 0) { s += ", "; }
-      s += sensorToString(i);
-    }
-    s += "]}\n";
-    
-    File configFile = SPIFFS.open("/config/sensors", "w");
-    if (!configFile) {
-      Serial.println("file open failed");
-      return false;
-    }
-
-    size_t written = configFile.println(s.c_str());
-    if (!written) {
-      Serial.println("not written");
-      configFile.close();
-      return false;
-    }
-    configFile.close();
-
-    _modified = false;
-    return true;
-  }
-
-  bool load() {
-    // This will be a bit odd, as we populate the detected ones, and then patch them with saved names and "active" flags from flash
-    populateAllSensors();
-
-    File configFile = SPIFFS.open("/config/sensors", "r");
-    if (!configFile) {
-      Serial.println("not found");
-      return false;
-    }
-  
-    size_t size = configFile.size();
-    if (size > 2048) {
-      Serial.println("too large");
-      return false;
-    }
-  
-    std::unique_ptr<char[]> buf(new char[size]);
-    configFile.readBytes(buf.get(), size);
-    configFile.close();
-  
-    StaticJsonDocument<512> json;
-    DeserializationError error = deserializeJson(json, buf.get());
-    if (error) {
-      Serial.println("deserialize fail");
-      return false;
-    }
-
-    if (json.containsKey("sensors") && json["sensors"].is<JsonArray>())
-    {
-      JsonArray arr = json["sensors"];
-      for (JsonObject sensor : arr)
-      {
-        char const* keys[] = {"id", "name", "active", nullptr};
-        char const** it = keys;
-        while (*it) {
-          if (!sensor.containsKey(*it)) {
-            Serial.printf("missing key sensor[].%s", *it);
-            return false;
-          }
-          it++;
-        }
-
-        for (int i = 0; i < numAllSensors; i++)
-        {
-          if (strncasecmp(sensor["id"].as<const char*>(), allSensors[i].id, sizeof(allSensors[i].id)) == 0) // TODO: should this be case sensitive?
-          {
-            allSensors[i].active = sensor["active"].as<int>();
-            strncpy(allSensors[i].name, sensor["name"].as<const char*>(), sizeof(allSensors[i].name));
-            break;
-          }
-        }
-      }
-    }
-    _modified = false;
-    return true;
-  }
-  bool isModified() const { return _modified; }
-  private:
-  bool _modified;
-  String sensorToString(int allSensorIndex)
-  {
-    String s = "{\"id\":\"" + deviceAddressToString(allSensors[allSensorIndex].deviceAddress) +
-    "\", \"name\":\"" + allSensors[allSensorIndex].name +
-    "\", \"active\":" + (allSensors[allSensorIndex].active ? "1" : "0") + "}";
-    return s;
-  }
-} configSensors;
-
-
-void populateAllSensors()
-{
-  numAllSensors = sensors.getDeviceCount();
-  if (numAllSensors > MAX_NUM_SENSORS)
-  {
-    numAllSensors = MAX_NUM_SENSORS;
-    Serial.print("ERROR: too many sensors connected");
-  }
-  for (int i = 0; i < numAllSensors; i++)
-  {
-    allSensors[i].index = i;
-    memset(allSensors[i].deviceAddress, 0, sizeof(allSensors[i].deviceAddress));
-    sensors.getAddress(allSensors[i].deviceAddress, i);
-    strncpy(allSensors[i].id, deviceAddressToString(allSensors[i].deviceAddress).c_str(), sizeof(allSensors[i].id));
-    snprintf(allSensors[i].name, sizeof(allSensors[i].name), "Sensor%d", allSensors[i].index);
-    allSensors[i].active = false;
-    allSensors[i].lastValue = 0;
-  }
-}
-
+#include "Sensor.hpp"
+#include "ConfigSensors.hpp"
 
 struct ServedSensor {
   int allSensorsIndex;
@@ -268,6 +133,7 @@ void handleSettings()
   }
 }
 
+
 void handleRoot()
 {
   // When running tests against main.html requiring a web server on the other end
@@ -284,7 +150,7 @@ void handleRoot()
 
 
 String getSensorStart(int allSensorsIndex) {
-  Sensor const & sensor = allSensors[allSensorsIndex];
+  Sensor const & sensor = configSensors.allSensors[allSensorsIndex];
   String s = "{\"id\":\"" + String(sensor.id) + "\", \"name\":\"" + String(sensor.name) + "\", \"readings\":[";
   return s;
 }
@@ -470,9 +336,9 @@ void handleNotFound()
     {
       //DeviceAddress da;
       //stringToDeviceAddress(da, id);
-      for (int i = 0; i < numAllSensors; i++)
+      for (int i = 0; i < configSensors.numAllSensors; i++)
       {
-        if (strncasecmp(id.c_str(), allSensors[i].id, 16) == 0) // TODO: should this be case sensitive?
+        if (strncasecmp(id.c_str(), configSensors.allSensors[i].id, 16) == 0) // TODO: should this be case sensitive?
         {
           if (server.method() == HTTP_GET)
           {
@@ -498,12 +364,12 @@ void handleNotFound()
             {
               if (root.containsKey("name"))
               {
-                strncpy(allSensors[i].name, root["name"].as<char*>(), sizeof(allSensors[i].name));
-                allSensors[i].name[sizeof(allSensors[i].name) - 1] = '\0';
+                strncpy(configSensors.allSensors[i].name, root["name"].as<char*>(), sizeof(configSensors.allSensors[i].name));
+                configSensors.allSensors[i].name[sizeof(configSensors.allSensors[i].name) - 1] = '\0';
               }
               if (root.containsKey("active"))
               {
-                allSensors[i].active = (root["active"].as<int>() == 0) ? false : true;
+                configSensors.allSensors[i].active = (root["active"].as<int>() == 0) ? false : true;
               }
 
               server.send(200, "text/plain", "OK");
@@ -550,10 +416,10 @@ void handleNotFound()
 
 String sensorToString(int allSensorIndex)
 {
-  String s = "{\"id\":\"" + deviceAddressToString(allSensors[allSensorIndex].deviceAddress) +
-  "\", \"name\":\"" + allSensors[allSensorIndex].name +
-  "\", \"active\":" + (allSensors[allSensorIndex].active ? "1" : "0") +
-  ", \"lastValue\":" + String(allSensors[allSensorIndex].lastValue, 2) + "}";
+  String s = "{\"id\":\"" + deviceAddressToString(configSensors.allSensors[allSensorIndex].deviceAddress) +
+  "\", \"name\":\"" + configSensors.allSensors[allSensorIndex].name +
+  "\", \"active\":" + (configSensors.allSensors[allSensorIndex].active ? "1" : "0") +
+  ", \"lastValue\":" + String(configSensors.allSensors[allSensorIndex].lastValue, 2) + "}";
   // TODO: update when we have persistent name storage
   return s;
 }
@@ -561,7 +427,7 @@ String sensorToString(int allSensorIndex)
 void handleSensors()
 {
   String s = R"EOF({"sensors":[)EOF";
-  for (int i = 0; i < numAllSensors; i++)
+  for (int i = 0; i < configSensors.numAllSensors; i++)
   {
     if (i != 0) { s += ", "; }
     s += sensorToString(i);
@@ -746,7 +612,8 @@ void setup()
   Serial.print(sensors.getDeviceCount());
   Serial.println(" devices found:");
 
-  populateAllSensors();
+  // TODO: consider moving into ConfigSensors
+  configSensors.populateAllOneWireSensors();
   
   numServedSensors = sensors.getDeviceCount();
   if (numServedSensors > 2)
@@ -776,11 +643,11 @@ void setup()
   sensors.getAddress(sensorAddress, sensorIndex);
 
   servedSensors[0].allSensorsIndex = sensorIndex;
-  allSensors[sensorIndex].active = true;
+  configSensors.allSensors[sensorIndex].active = true;
 
   if (numServedSensors > 1) {
     servedSensors[1].allSensorsIndex = 1;
-    allSensors[1].active = true;
+    configSensors.allSensors[1].active = true;
   }
 
   Serial.print("Loading saved sensor configurations ... ");
@@ -818,10 +685,10 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
 {
   sensors.requestTemperatures();
 
-  for (int16_t i = 0; i < numAllSensors; i++)
+  for (int16_t i = 0; i < configSensors.numAllSensors; i++)
   {
-    float temperatureCelcius = sensors.getTempC(allSensors[i].deviceAddress);
-    allSensors[i].lastValue = temperatureCelcius;
+    float temperatureCelcius = sensors.getTempC(configSensors.allSensors[i].deviceAddress);
+    configSensors.allSensors[i].lastValue = temperatureCelcius;
     Serial.print(temperatureCelcius);
 
     for (int j = 0; j < numServedSensors; j++)
