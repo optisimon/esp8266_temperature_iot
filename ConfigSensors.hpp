@@ -7,9 +7,34 @@ struct ConfigSensors {
   int16_t numAllSensors = 0;          // TODO: make this private and add accessors
   Sensor allSensors[MAX_NUM_SENSORS]; // TODO: make this private and create accessors
 
-  bool patch(char const * jsonString) {
+  bool patchSingleSensor(int sensorIndex, char const * jsonString) {
     // TODO: move in patching from web server code (which was accessing one sensor at a time)
-    return false; // TODO: implement
+    const size_t capacity = JSON_OBJECT_SIZE(2) + 200;
+    StaticJsonDocument<capacity> root;
+    DeserializationError error = deserializeJson(root, jsonString);
+    
+    if (error)
+    {
+      Serial.println("Parsing failed!");
+      server.send(400, "text/plain", "ERROR"); // TODO: which status code???
+      return false;
+    }
+    else 
+    {
+      if (root.containsKey("name"))
+      {
+        strncpy(allSensors[sensorIndex].name, root["name"].as<char*>(), sizeof(allSensors[sensorIndex].name));
+        allSensors[sensorIndex].name[sizeof(allSensors[sensorIndex].name) - 1] = '\0';
+      }
+      if (root.containsKey("active"))
+      {
+        allSensors[sensorIndex].active = (root["active"].as<int>() == 0) ? false : true;
+      }
+
+      
+      return true;
+      // No idea what to do...
+    }
   }
   bool save()
   {
@@ -42,6 +67,7 @@ struct ConfigSensors {
   bool load() {
     // This will be a bit odd, as we populate the detected ones, and then patch them with saved names and "active" flags from flash
     populateAllOneWireSensors();
+    populateAllAdcChannels(); // Additionally, we reserve some for adc measurements of NTC resistors.
 
     File configFile = SPIFFS.open("/config/sensors", "r");
     if (!configFile) {
@@ -71,7 +97,7 @@ struct ConfigSensors {
       JsonArray arr = json["sensors"];
       for (JsonObject sensor : arr)
       {
-        char const* keys[] = {"id", "name", "active", nullptr};
+        char const* keys[] = {"id", "type", "name", "active", nullptr};
         char const** it = keys;
         while (*it) {
           if (!sensor.containsKey(*it)) {
@@ -111,9 +137,46 @@ struct ConfigSensors {
             sensors.getAddress(allSensors[i].deviceAddress, i);
             strncpy(allSensors[i].id, deviceAddressToString(allSensors[i].deviceAddress).c_str(), sizeof(allSensors[i].id));
             snprintf(allSensors[i].name, sizeof(allSensors[i].name), "Sensor%d", allSensors[i].index);
+            allSensors[i].type = Sensor::Type::OneWire;
             allSensors[i].active = false;
             allSensors[i].lastValue = 0;
         }
+    }
+
+    void populateAllAdcChannels()
+    {
+      // Fake sensor names (i.e. reserve four for NTC because ADC have 4 channels)
+      #define NUM_ADC_CHANNELS 4
+      for (int i = 0; i < NUM_ADC_CHANNELS; i++)
+      {
+        if (numAllSensors >= ConfigSensors::MAX_NUM_SENSORS)
+        {
+          Serial.println("ERROR: not enough room for additional analog sensors");
+          break;
+        }
+        Sensor & s = allSensors[numAllSensors];
+        s = {};
+        s.type = Sensor::Type::NTC;
+        s.index = i;
+        s.active = true;
+        snprintf(s.id, sizeof(s.id), "000000000000000%d", i);
+        snprintf(s.name, sizeof(s.name), "NTC-%d", i);
+        s.lastValue = 0;
+        numAllSensors++;
+      }
+    }
+
+    int getNumActive() const
+    {
+      int cnt = 0;
+      for (int i = 0; i < numAllSensors; i++)
+      {
+        if (allSensors[i].active)
+        {
+          cnt++;
+        }
+      }
+      return cnt;
     }
 
     bool isModified() const { return _modified; }
@@ -121,7 +184,17 @@ struct ConfigSensors {
     bool _modified;
     String sensorToString(int allSensorIndex)
     {
-        String s = "{\"id\":\"" + deviceAddressToString(allSensors[allSensorIndex].deviceAddress) +
+        String id;
+        if (allSensors[allSensorIndex].type == Sensor::Type::OneWire)
+        {
+            id = deviceAddressToString(allSensors[allSensorIndex].deviceAddress);
+        }
+        else if (allSensors[allSensorIndex].type == Sensor::Type::NTC)
+        {
+            id = String("000000000000000") + String(allSensors[allSensorIndex].index);
+        }
+        String s = "{\"id\":\"" + id +
+        "\", \"type\":\"" + toString(allSensors[allSensorIndex].type) +
         "\", \"name\":\"" + allSensors[allSensorIndex].name +
         "\", \"active\":" + (allSensors[allSensorIndex].active ? "1" : "0") + "}";
         return s;

@@ -50,15 +50,24 @@ NOT AVAILABLE YET:
   "sensors": [
     {
       "id": "28ff98fd6d14042e",
+      "type": "OneWire",
       "name": "Sensor0",
       "active": 0,
       "lastValue": 24.06
     },
     {
       "id": "28ffc2fd6d140406",
+      "type": "OneWire",
       "name": "upper",
       "active": 1,
       "lastValue": 25.88
+    },
+    {
+      "id": "NTC-0",
+      "type": "NTC",
+      "name": "boiler_middle",
+      "active": 1,
+      "lastValue": 57.20
     }
   ],
   "max_num_active": 2
@@ -71,6 +80,7 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
 
 {
   "id": "28ff98fd6d14042e",
+  "type": "OneWire",
   "name": "Sensor0",
   "active": 0,
   "lastValue": 24.06
@@ -83,11 +93,13 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
   "sensors": [
     {
       "id": "28ffbaa464140313",
+      "type": "OneWire",
       "name": "middle",
       "readings": [0, 20.34, 20.50, ...]
     },
     {
       "id": "28ffc2fd6d140406",
+      "type": "OneWire",
       "name": "upper",
       "readings": [0.00, 0.00, 0.00, ...]
     }
@@ -101,11 +113,13 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
   "sensors": [
     {
       "id": "28ffbaa464140313",
+      "type": "OneWire",
       "name": "middle",
       "readings": [0, 20.34, 20.50, ...]
     },
     {
       "id": "28ffc2fd6d140406",
+      "type": "OneWire",
       "name": "upper",
       "readings": [0.00, 0.00, 0.00, ...]
     }
@@ -176,7 +190,14 @@ Have these files:
   "sensors": [
     {
       "id": "28ff98fd6d14042e",
+      "type": "OneWire",
       "name": "Sensor0",
+      "active": 0
+    },
+    {
+      "id": "0000000000000001",
+      "type": "NTC",
+      "name": "Sensor1",
       "active": 0
     }
   ]

@@ -125,8 +125,9 @@ struct ServedSensor {
   CircularBuffer<float, 1440> readings_24h;
 };
 
+const int16_t maxNumServedSensors = 2;
 int16_t numServedSensors = 0;
-ServedSensor servedSensors[2] = {{}, {}}; // internal compiler error if only '= {};'
+ServedSensor servedSensors[maxNumServedSensors] = {{}, {}}; // internal compiler error if only '= {};'
 
 void handleSettings()
 {
@@ -160,7 +161,7 @@ void handleRoot()
 
 String getSensorStart(int allSensorsIndex) {
   Sensor const & sensor = configSensors.allSensors[allSensorsIndex];
-  String s = "{\"id\":\"" + String(sensor.id) + "\", \"name\":\"" + String(sensor.name) + "\", \"readings\":[";
+  String s = "{\"id\":\"" + String(sensor.id) + "\", \"type\":\"" + toString(sensor.type) + "\", \"name\":\"" + String(sensor.name) + "\", \"readings\":[";
   return s;
 }
 
@@ -358,32 +359,25 @@ void handleNotFound()
           else if (server.method() == HTTP_PATCH && server.hasArg("plain"))
           {
             String const json = server.arg("plain");
-            
-            const size_t capacity = JSON_OBJECT_SIZE(2) + 200;
-            StaticJsonDocument<capacity> root;
-            DeserializationError error = deserializeJson(root, json.c_str());
-            
-            if (error)
+
+            bool wasActive = configSensors.allSensors[i].active;
+            bool ok = configSensors.patchSingleSensor(i, json.c_str());
+
+            if (wasActive ^ configSensors.allSensors[i].active)
+            {
+              populateServedSensors();
+            }
+
+            if (ok)
+            {
+              server.send(200, "text/plain", "OK");
+              return;
+            }
+            else
             {
               Serial.println("Parsing failed!");
               server.send(400, "text/plain", "ERROR"); // TODO: which status code???
               return;
-            }
-            else 
-            {
-              if (root.containsKey("name"))
-              {
-                strncpy(configSensors.allSensors[i].name, root["name"].as<char*>(), sizeof(configSensors.allSensors[i].name));
-                configSensors.allSensors[i].name[sizeof(configSensors.allSensors[i].name) - 1] = '\0';
-              }
-              if (root.containsKey("active"))
-              {
-                configSensors.allSensors[i].active = (root["active"].as<int>() == 0) ? false : true;
-              }
-
-              server.send(200, "text/plain", "OK");
-              return;
-              // No idea what to do...
             }
           }
         }
@@ -423,9 +417,18 @@ void handleNotFound()
   Serial.write(message.c_str());
 }
 
-String sensorToString(int allSensorIndex)
+String sensorToString(int allSensorIndex) // TODO: unite with the one in configsensors
 {
-  String s = "{\"id\":\"" + deviceAddressToString(configSensors.allSensors[allSensorIndex].deviceAddress) +
+  String id;
+  if (configSensors.allSensors[allSensorIndex].type == Sensor::Type::OneWire)
+  {
+      id = deviceAddressToString(configSensors.allSensors[allSensorIndex].deviceAddress);
+  }
+  else if (configSensors.allSensors[allSensorIndex].type == Sensor::Type::NTC)
+  {
+      id = String("000000000000000") + String(configSensors.allSensors[allSensorIndex].index);
+  }
+  String s = "{\"id\":\"" + id +  "\", \"type\":\"" + toString(configSensors.allSensors[allSensorIndex].type) +
   "\", \"name\":\"" + configSensors.allSensors[allSensorIndex].name +
   "\", \"active\":" + (configSensors.allSensors[allSensorIndex].active ? "1" : "0") +
   ", \"lastValue\":" + String(configSensors.allSensors[allSensorIndex].lastValue, 2) + "}";
@@ -612,12 +615,6 @@ void setup()
 
   MDNS.addService("http", "tcp", 80);
 
-  for (int i = 0; i < 2; i++)
-  {
-    servedSensors[i].readings_1h.fill(0.0f);
-    servedSensors[i].readings_24h.fill(0.0f);
-  }
-
   Serial.print("Starting temperature sensor monitoring... ");
   sensors.begin(); // TODO: do we have a return status??
   Serial.print(sensors.getDeviceCount());
@@ -625,11 +622,13 @@ void setup()
 
   // TODO: consider moving into ConfigSensors
   configSensors.populateAllOneWireSensors();
+  configSensors.populateAllAdcChannels();
   
+#if 0
   numServedSensors = sensors.getDeviceCount();
-  if (numServedSensors > 2)
+  if (numServedSensors > maxNumServedSensors)
   {
-    numServedSensors = 2;
+    numServedSensors = maxNumServedSensors;
   }
   for (int i = 0; i < sensors.getDeviceCount(); i++)
   {
@@ -660,9 +659,29 @@ void setup()
     servedSensors[1].allSensorsIndex = 1;
     configSensors.allSensors[1].active = true;
   }
+#endif
 
   Serial.print("Loading saved sensor configurations ... ");
   Serial.println(configSensors.load() ? "Ready":"Failed!");
+
+  populateServedSensors();
+}
+
+// TODO: do not erase data if one of the sensors continued to be active (even if order changed)
+void populateServedSensors()
+{
+  // Serve the first sensors selected as active (but not too many)
+  numServedSensors = 0;
+  for(int i = 0; i < configSensors.numAllSensors; i++)
+  {
+    Sensor & cs = configSensors.allSensors[i];
+    if (cs.active && numServedSensors < maxNumServedSensors)
+    {
+      servedSensors[numServedSensors].readings_1h.fill(0.0f);
+      servedSensors[numServedSensors].readings_24h.fill(0.0f);
+      servedSensors[numServedSensors++].allSensorsIndex = i;
+    }
+  }
 }
 
 String deviceAddressToString(DeviceAddress const & da)
@@ -694,14 +713,28 @@ void stringToDeviceAddress(DeviceAddress da, String const & id)
 
 void readSensors(bool shouldRead1h, bool shouldRead24h)
 {
+  //TODO: should this be done even if no OneWire sensors?
   sensors.requestTemperatures();
 
   for (int16_t i = 0; i < configSensors.numAllSensors; i++)
   {
-    float temperatureCelcius = sensors.getTempC(configSensors.allSensors[i].deviceAddress);
+    float temperatureCelcius = -1;
+    switch (configSensors.allSensors[i].type)
+    {
+      case Sensor::Type::OneWire:
+        temperatureCelcius = sensors.getTempC(configSensors.allSensors[i].deviceAddress);
+        break;
+      case Sensor::Type::NTC:
+        temperatureCelcius = readAnalogSensor(configSensors.allSensors[i].index);
+        break;
+      default:
+        printf("Unknown sensor type\n");
+        break;
+    }
     configSensors.allSensors[i].lastValue = temperatureCelcius;
     Serial.print(temperatureCelcius);
 
+    // If this sensor should be served, serve it
     for (int j = 0; j < numServedSensors; j++)
     {
       if (servedSensors[j].allSensorsIndex == i)
@@ -719,29 +752,24 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
   Serial.println();
 }
 
-void readAnalogSensor0(bool shouldRead1h, bool shouldRead24h)
+
+float readAnalogSensor(int analogChannel)
 {
     // READ ADC AND CONVERT TO TEMPERATURE
-    int adc_in = ads.readADC_SingleEnded(0);
-    float voltage = adc_in * 0.1875e-3; // since default gain 2/3
-    float res = voltage*10e3 / (3.3 - voltage);
-    const float B = 3950;
-    const float R0 = 10000; // NTC resistor, 10k @ 25 deg C
-    const float T0 = 273.15 + 25;
+  int adc_in = ads.readADC_SingleEnded(analogChannel);
+  float voltage = adc_in * 0.1875e-3; // since default gain 2/3
+  float res = voltage*10e3 / (3.3 - voltage);
+  const float B = 3950;
+  const float R0 = 10000; // NTC resistor, 10k @ 25 deg C
+  const float T0 = 273.15 + 25;
 
-    float temp = B / log(res / (R0*expf(-B/T0))) - 273.15;
+  float temp = B / log(res / (R0*expf(-B/T0))) - 273.15;
 
-    configSensors.allSensors[0].lastValue = temp;
+  Serial.printf("ADC%d: raw=%d, V=%1.4f V, res=%5.1f Ohm, temp=%2.2f C\n", analogChannel, adc_in, voltage, res, temp);
 
-    Serial.printf("ADC: raw=%d, V=%1.4f V, res=%5.1f Ohm, temp=%2.2f C\n", adc_in, voltage, res, temp);
-
-    if (shouldRead1h) {
-      servedSensors[0].readings_1h.push_back_erase_if_full(temp);
-    }
-    if (shouldRead24h) {
-      servedSensors[0].readings_24h.push_back_erase_if_full(temp);
-    }
+  return temp;
 }
+
 
 void loop()
 {
@@ -785,5 +813,7 @@ void loop()
       startMillis_24h += time_between_24h_readings_ms;
       shouldRead24h = false;
     }
+
+
   }
 }
