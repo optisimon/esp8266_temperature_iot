@@ -38,6 +38,7 @@ Sorry, your browser does not support the canvas element!
 </div>
 
 <script>
+var intervalTimerId = undefined;
 var globalRequestDuration = "";
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
@@ -135,7 +136,11 @@ function myRefresh() {
 			var myArr = JSON.parse(this.responseText);
 			sensors = myArr["sensors"];
 
-			if (sensors[0]["readings"].length != 0)
+			if (sensors.length == 0)
+			{
+				h.innerHTML = "NO SENSORS IN REPLY";
+			}
+			else if (sensors[0]["readings"].length != 0)
 			{
 				h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
 				var today = new Date();
@@ -172,7 +177,11 @@ function myOnLoad() {
 		window.addEventListener('resize', resizeCanvas, false);
 		resizeCanvas();
 		myRefresh();
-		setInterval(myRefresh, 10000);
+		if (intervalTimerId != undefined)
+		{
+			clearInterval(intervalTimerId);
+		}
+		intervalTimerId = setInterval(myRefresh, 10000);
 	}
 
 	// Runs each time the DOM window resize event fires.
