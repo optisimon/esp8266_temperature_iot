@@ -81,12 +81,11 @@ struct ConfigSensors {
       return false;
     }
   
-    std::unique_ptr<char[]> buf(new char[size]);
-    configFile.readBytes(buf.get(), size);
+    String buf = configFile.readString();
     configFile.close();
   
-    StaticJsonDocument<512> json;
-    DeserializationError error = deserializeJson(json, buf.get());
+    StaticJsonDocument<2048> json;
+    DeserializationError error = deserializeJson(json, buf.c_str());
     if (error) {
       Serial.println("deserialize fail");
       return false;
@@ -99,12 +98,18 @@ struct ConfigSensors {
       {
         char const* keys[] = {"id", "type", "name", "active", nullptr};
         char const** it = keys;
+        bool configIsComplete = true;
         while (*it) {
           if (!sensor.containsKey(*it)) {
             Serial.printf("missing key sensor[].%s", *it);
-            return false;
+            configIsComplete = false;
           }
           it++;
+        }
+        if (!configIsComplete)
+        {
+          // Skip loading "active" flag and "name" for sensors with broken configuration
+          continue;
         }
 
         for (int i = 0; i < numAllSensors; i++)
@@ -121,6 +126,12 @@ struct ConfigSensors {
     _modified = false;
     return true;
   }
+
+    void populateAllSensors()
+    {
+        populateAllOneWireSensors();
+        populateAllAdcChannels();
+    }
 
     void populateAllOneWireSensors()
     {
@@ -145,8 +156,12 @@ struct ConfigSensors {
 
     void populateAllAdcChannels()
     {
-      // Fake sensor names (i.e. reserve four for NTC because ADC have 4 channels)
-      #define NUM_ADC_CHANNELS 4
+      // Fake sensor names
+      #define NUM_ADC_CHANNELS 6
+
+            // PCB layout was simplified by changing order of channels to the adc
+      char ntcIndexToAdcChannelMap[NUM_ADC_CHANNELS] = {7, 6, 5, 4, 0, 1};
+
       for (int i = 0; i < NUM_ADC_CHANNELS; i++)
       {
         if (numAllSensors >= ConfigSensors::MAX_NUM_SENSORS)
@@ -157,9 +172,9 @@ struct ConfigSensors {
         Sensor & s = allSensors[numAllSensors];
         s = {};
         s.type = Sensor::Type::NTC;
-        s.index = i;
-        s.active = true;
-        snprintf(s.id, sizeof(s.id), "000000000000000%d", i);
+        s.index = ntcIndexToAdcChannelMap[i];
+        s.active = false;
+        snprintf(s.id, sizeof(s.id), "000000000000000%d", s.index);
         snprintf(s.name, sizeof(s.name), "NTC-%d", i);
         s.lastValue = 0;
         numAllSensors++;

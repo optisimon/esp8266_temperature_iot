@@ -50,7 +50,7 @@ public:
   }
   int size() const { return _size; }
   
-  T& operator[](int pos)
+  T const & operator[](int pos) const
   {
     if (pos > _size)
     {

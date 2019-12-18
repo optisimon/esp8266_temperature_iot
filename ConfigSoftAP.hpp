@@ -105,12 +105,11 @@ struct ConfigSoftAP
       return false;
     }
   
-    std::unique_ptr<char[]> buf(new char[size]);
-    configFile.readBytes(buf.get(), size);
+    String buf = configFile.readString();
     configFile.close();
   
     StaticJsonDocument<512> json;
-    DeserializationError error = deserializeJson(json, buf.get());
+    DeserializationError error = deserializeJson(json, buf.c_str());
     if (error) {
       Serial.println("deserialize fail");
       return false;

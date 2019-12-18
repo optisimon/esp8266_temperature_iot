@@ -47,16 +47,17 @@
 #include <Adafruit_ADS1015.h>
 
 #include "CircularBuffer.hpp"
+#include "Mcp3208.hpp"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
 const unsigned long time_between_24h_readings_ms = 60000UL;
-const int oneWireBus = 4; // D2 is the same as gpio4 on my board...
+const int oneWireBus = 4; // vellman vma107: = 4 (labeled D2 on pcb)
 
-const int I2C_SCL = 5; // D1 
-const int I2C_SDA = 13; // D7
+//const int I2C_SCL = 5; // vellman vma107: =5 (labeled D1 on pcb) 
+//const int I2C_SDA = 4; // vellman vma107: =13 (labeled D7 on pcb)
 const int16_t I2C_SLAVE = 0x48;
 
-Adafruit_ADS1115 ads;
+//Adafruit_ADS1115 ads;
 
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
@@ -66,6 +67,9 @@ DeviceAddress sensorAddress = {0x28,0xff,0xba,0xa4,0x64,0x14,0x03,0x13};
 
 // Index of temperature sensor to use (will be updated at boot)
 int sensorIndex = 0;
+
+
+Mcp3208 mcp3208;
 
 /** 
  *  Set ip adress only for valid IP adresses (no change of ip for invalid input).
@@ -119,15 +123,35 @@ ESP8266WebServer server(80);
 #include "Sensor.hpp"
 #include "ConfigSensors.hpp"
 
+
 struct ServedSensor {
   int allSensorsIndex;
-  CircularBuffer<float, 360> readings_1h;
-  CircularBuffer<float, 1440> readings_24h;
+  inline float const getReading_1h(int index) const { return vtof(_readings_1h[index]); }
+  inline float const getReading_24h(int index) const { return vtof(_readings_24h[index]); }
+
+  inline void addReading_1h(float value) { _readings_1h.push_back_erase_if_full(ftov(value)); }
+  inline void addReading_24h(float value) { _readings_24h.push_back_erase_if_full(ftov(value)); }
+
+  inline int getNumReadings_1h() const { return _readings_1h.size(); }
+  inline int getNumReadings_24h() const { return _readings_24h.size(); }
+
+  inline void fill_1h(float val) { _readings_1h.fill(ftov(val)); }
+  inline void fill_24h(float val) { _readings_24h.fill(ftov(val)); }
+private:
+  int16_t ftov(float v) const {
+    return int16_t(v * 16);
+  }
+  float vtof(int16_t v) const {
+    return v * 0.0625f;
+  }
+
+  CircularBuffer<int16_t, 360> _readings_1h;
+  CircularBuffer<int16_t, 1440> _readings_24h;
 };
 
-const int16_t maxNumServedSensors = 2;
+const int16_t maxNumServedSensors = 6;
 int16_t numServedSensors = 0;
-ServedSensor servedSensors[maxNumServedSensors] = {{}, {}}; // internal compiler error if only '= {};'
+ServedSensor servedSensors[maxNumServedSensors] = {{}, {}, {}, {}, {}, {}}; // internal compiler error if only '= {};'
 
 void handleSettings()
 {
@@ -211,15 +235,14 @@ void returnConfigReplaceField(const char* location, const char* fieldToReplace, 
     return;
   }
 
-  std::unique_ptr<char[]> buf(new char[size]);
-  configFile.readBytes(buf.get(), size);
+  String buf = configFile.readString();
   configFile.close();
 
   StaticJsonDocument<512> json;
-  DeserializationError error = deserializeJson(json, buf.get());
+  DeserializationError error = deserializeJson(json, buf.c_str());
   if (error)
   {
-    String e = String("Failed to parse config file\n===CONTENT===\n") + buf.get() + "\n======\n";
+    String e = String("Failed to parse config file\n===CONTENT===\n") + buf + "\n======\n";
     sendError(e);
     return;
   }
@@ -448,51 +471,67 @@ void handleSensors()
   server.send(200, "application/javascript", s);
 }
 
-void handleSensors_1h()
+void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
 {
+
   String s = R"rawliteral({"sensors":[)rawliteral";
+  if (numServedSensors == 0)
+  {
+    s += "]}\n"; // end of everything
+    server.send(200, "application/javascript", s);
+    return;
+  }
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+
   for (int k = 0; k < numServedSensors; k++)
   {
     if (k != 0) { s += ", "; }
+    int N = serve_24h_instead_of_1h ? servedSensors[k].getNumReadings_24h() : servedSensors[k].getNumReadings_1h();
     s += getSensorStart(servedSensors[k].allSensorsIndex);
-    for (int i = 0; i < servedSensors[k].readings_1h.size(); i++)
+    for (int i = 0; i < N; i++)
     {
       if (i != 0) {
         s += ", ";
       }
-      String val(servedSensors[k].readings_1h[i], 2);
+      String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i), 2);
       s += val;
     }
     s += "]}\n"; // sensor end
+
+    if (k == numServedSensors - 1)
+    {
+      s += "]}\n"; // end of everything
+    }
+
+    if (k == 0)
+    {
+      server.send(200, "application/javascript", s);
+    }
+    else
+    {
+      server.sendContent(s);
+    }
+    s = "";
   }
-  s += "]}\n";
-  server.send(200, "application/javascript", s);
+  server.sendContent(""); // To signal no more content
+}
+
+void handleSensors_1h()
+{
+  bool serve_24h_instead_of_1h = false;
+  handleSensors_1h_or_24h(serve_24h_instead_of_1h);
 }
 
 void handleSensors_24h()
 {
-  String s = R"rawliteral({"sensors":[)rawliteral";
-  for (int k = 0; k < numServedSensors; k++)
-  {
-    if (k != 0) { s += ", "; }
-    s += getSensorStart(servedSensors[k].allSensorsIndex);
-    for (int i = 0; i < servedSensors[k].readings_24h.size(); i++)
-    {
-      if (i != 0) {
-        s += ", ";
-      }
-      String val(servedSensors[k].readings_24h[i], 2);
-      s += val;
-    }
-    s += "]}\n"; // sensor end
-  }
-  s += "]}\n";
-  server.send(200, "application/javascript", s);
+  bool serve_24h_instead_of_1h = true;
+  handleSensors_1h_or_24h(serve_24h_instead_of_1h);
 }
 
 void setup()
 {
-  Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus (address optional for master)
+  //Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus (address optional for master)
 
   // Do not automatically connect on power on to the last used access point.
   // Do not start things automatically + reduce wear on flash
@@ -621,8 +660,7 @@ void setup()
   Serial.println(" devices found:");
 
   // TODO: consider moving into ConfigSensors
-  configSensors.populateAllOneWireSensors();
-  configSensors.populateAllAdcChannels();
+  configSensors.populateAllSensors();
   
 #if 0
   numServedSensors = sensors.getDeviceCount();
@@ -677,8 +715,8 @@ void populateServedSensors()
     Sensor & cs = configSensors.allSensors[i];
     if (cs.active && numServedSensors < maxNumServedSensors)
     {
-      servedSensors[numServedSensors].readings_1h.fill(0.0f);
-      servedSensors[numServedSensors].readings_24h.fill(0.0f);
+      servedSensors[numServedSensors].fill_1h(0.0f);
+      servedSensors[numServedSensors].fill_24h(0.0f);
       servedSensors[numServedSensors++].allSensorsIndex = i;
     }
   }
@@ -725,7 +763,8 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
         temperatureCelcius = sensors.getTempC(configSensors.allSensors[i].deviceAddress);
         break;
       case Sensor::Type::NTC:
-        temperatureCelcius = readAnalogSensor(configSensors.allSensors[i].index);
+        //temperatureCelcius = readAnalogSensor(configSensors.allSensors[i].index);
+        temperatureCelcius = readMcp3208Sensor(configSensors.allSensors[i].index);
         break;
       default:
         printf("Unknown sensor type\n");
@@ -740,10 +779,10 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
       if (servedSensors[j].allSensorsIndex == i)
       {
         if (shouldRead1h) {
-          servedSensors[j].readings_1h.push_back_erase_if_full(temperatureCelcius);
+          servedSensors[j].addReading_1h(temperatureCelcius);
         }
         if (shouldRead24h) {
-          servedSensors[j].readings_24h.push_back_erase_if_full(temperatureCelcius);
+          servedSensors[j].addReading_24h(temperatureCelcius);
         }
       }
     }
@@ -752,7 +791,7 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
   Serial.println();
 }
 
-
+/*
 float readAnalogSensor(int analogChannel)
 {
     // READ ADC AND CONVERT TO TEMPERATURE
@@ -769,7 +808,23 @@ float readAnalogSensor(int analogChannel)
 
   return temp;
 }
+*/
 
+float readMcp3208Sensor(int analogChannel)
+{
+  // READ ADC AND CONVERT TO TEMPERATURE
+  int adc_in = mcp3208.read(analogChannel);
+  float res = 10e3/(4096.0f / adc_in - 1);
+  const float B = 3950;
+  const float R0 = 10000; // NTC resistor, 10k @ 25 deg C
+  const float T0 = 273.15 + 25;
+
+  float temp = B / log(res / (R0*expf(-B/T0))) - 273.15;
+
+// Serial.printf("MCP3208 %d: raw=%d, res=%5.1f Ohm, temp=%2.2f C\n", analogChannel, adc_in, res, temp);
+
+  return temp;
+}
 
 void loop()
 {
