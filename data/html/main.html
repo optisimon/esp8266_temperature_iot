@@ -1,11 +1,14 @@
 <html>
 <head>
+<meta charset="utf-8">
 <style>
 body
 {
 	display:table;
 	width:100%;
 	height:100%;
+	margin:0 !important;
+	padding:0 !important;
 }
 div
 {
@@ -14,21 +17,22 @@ div
 div#canvasDiv
 {
 	height:100%;
-	padding:0px;
+	padding:0 !important;
+	margin:0 !important;
 }
 </style>
 <title>TempViewer</title>
 </head>
 <body onload="myOnLoad()">
 
-<div>Last Value: <span id="myLastValue"></span>.
+<div style="font: 200% sans-serif;">
 Last Update: <span id="myLastUpdate">No readings yet</span>.
 Trend for
-<select id="myDurationSelect" onchange="myDurationChanged()">
-	<option value="1h" selected="selected">last hour</option>
-	<option value="24h">last 24 hours</option>
+<select id="myDurationSelect" onchange="myDurationChanged()" style="font: 100% sans-serif;">
+	<option value="1h">last hour</option>
+	<option value="24h" selected="selected">last 24 hours</option>
 </select>
-<button onclick="window.location.href='settings.html'" style="position: absolute; right: 0;">Settings</button>
+<button onclick="window.location.href='settings.html'" style="font: 100% sans-serif; float: right;">Settings</button>
 </div>
 
 <div id="canvasDiv">
@@ -50,19 +54,34 @@ function myDurationChanged() {
 myDurationChanged();
 
 function myRedraw() {
+	var determineFontHeight = function(fontStyle) {
+		var body = document.getElementsByTagName("body")[0];
+		var dummy = document.createElement("div");
+		var dummyText = document.createTextNode("M");
+		dummy.appendChild(dummyText);
+		dummy.setAttribute("style", fontStyle);
+		body.appendChild(dummy);
+		var result = dummy.offsetHeight;
+		body.removeChild(dummy);
+		return result;
+	};
+
+	var gridColor = "#d0d0d0"
+	var gridValueColor = "#000000"
 	var c = document.getElementById("myCanvas");
 	var ctx = c.getContext("2d");
 	ctx.clearRect(0, 0, c.width, c.height);
 
 	ctx.beginPath();
-	ctx.strokeStyle = 'blue';
-	ctx.lineWidth = '5';
+	ctx.strokeStyle = "blue";
+	ctx.lineWidth = '1';
 	ctx.strokeRect(0, 0, c.width, c.height);
 
 	ctx.beginPath();
 	ctx.lineWidth = '1';
 	var scaleX = c.width * 1.0 / sensors[0]["readings"].length;
-	var maxY = 50;
+	var maxY = 90;
+	var divisionsY = 9;
 	var scaleY = c.height * 1.0 / maxY;
 
 	// Make grid
@@ -75,10 +94,10 @@ function myRedraw() {
 		var divisionsX = 24;
 	}
 
-	var divisionsY = 5;
-	ctx.strokeStyle = "blue";
+	ctx.strokeStyle = gridColor;
 	ctx.fillStyle = ctx.strokeStyle;
-	ctx.font="100% sans-serif";
+	ctx.font="200% sans-serif";
+	fontHeight = determineFontHeight("font: " + ctx.font);
 	for (var x = 0; x < divisionsX; x++)
 	{
 		ctx.moveTo(x * (c.width - 1) / divisionsX, 0);
@@ -89,48 +108,80 @@ function myRedraw() {
 	{
 		ctx.moveTo(0, y * (c.height - 1) / divisionsY);
 		ctx.lineTo(c.width-1, y * (c.height - 1) / divisionsY);
-		var txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
-		ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
-		rightOfYValues = Math.max(rightOfYValues, ctx.measureText(txt).width + 5 + 5);
 	}
 	ctx.stroke();
 
-	// draw curve
+	// draw temp curves
+	let legendTextLength = 0;
+	let curveColors=['black', 'red', 'green', 'blue', 'gray', 'gray']
 	for (var sensor = 0; sensor < sensors.length; sensor++)
 	{
 		ctx.beginPath();
 		ctx.moveTo(0, c.height - scaleY * sensors[sensor]["readings"][0]);
 
-		if (sensor == 0)
-			ctx.strokeStyle = 'black';
-		else if (sensor == 1)
-			ctx.strokeStyle = 'red';
-		else if (sensor == 2)
-			ctx.strokeStyle = 'green';
+		if (sensor < curveColors.length)
+			ctx.strokeStyle = curveColors[sensor];
 		else
 			ctx.strokeStyle = 'gray'; // TODO: support more curves?
 
 		ctx.fillStyle = ctx.strokeStyle;
 
-		ctx.lineWidth = '2';
+		ctx.lineWidth = '3';
 		for (var i = 0; i < sensors[sensor]["readings"].length; i++) {
-		ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
+			ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
 		}
-	  
-		ctx.fillRect(rightOfYValues, (sensor + 1) * 20, 10, 10)
+
+		let txt = sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")";
+		legendTextLength = Math.max(legendTextLength, ctx.measureText(txt).width);
+		ctx.stroke();
+	}
+
+	// Draw left and right text
+	ctx.beginPath();
+	ctx.strokeStyle = gridValueColor;
+	ctx.fillStyle = ctx.strokeStyle;
+	for (var y = 0; y < divisionsY; y++)
+	{
+		let txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
+		ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
+
+		// Also draw text to the right
+		textWidth = ctx.measureText(txt).width
+		ctx.fillText(txt, c.width - 5 - textWidth, y * (c.height - 1) / divisionsY - 1);
+
+		rightOfYValues = Math.max(rightOfYValues, ctx.measureText(txt).width + fontHeight/2 + 10);
+	}
+
+	// Draw curve legends
+	ctx.beginPath();
+	ctx.strokeStyle = "#909090";
+	ctx.fillStyle = "rgba(255,255,255,0.7)";
+	ctx.fillRect(rightOfYValues -10, 20-5, legendTextLength + fontHeight/2 + 25, sensors.length*fontHeight+25)
+	ctx.strokeRect(rightOfYValues -10, 20-7, legendTextLength + fontHeight/2 + 25, sensors.length*fontHeight+25)
+	ctx.stroke();
+	for (var sensor = 0; sensor < sensors.length; sensor++)
+	{
+		ctx.beginPath();
+		if (sensor < curveColors.length)
+			ctx.strokeStyle = curveColors[sensor];
+		else
+			ctx.strokeStyle = 'gray'; // TODO: support more curves?
+
+		ctx.fillStyle = ctx.strokeStyle;
+		ctx.fillRect(rightOfYValues, (sensor + 1) * fontHeight - 5, fontHeight/2, fontHeight/2)
 		ctx.textBaseline = 'middle';
-		ctx.fillText(sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")",
-		             rightOfYValues + 15, 5 + (sensor + 1) * 20); // TODO: get font height ?
+		let txt = sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")"
+		ctx.fillText(txt, rightOfYValues + 10 + fontHeight / 2, 5 + (sensor + 1) * fontHeight);
 		ctx.textBaseline = 'alphabetic';
 		ctx.stroke();
 	}
+
 }
 
 function myRefresh() {
 	var xmlhttp = new XMLHttpRequest();
 	var url = "api/readings/" + globalRequestDuration;
 	xmlhttp.onreadystatechange = function() {
-		var h = document.getElementById("myLastValue");
 		var d = document.getElementById("myLastUpdate");
 		if (this.readyState == 4 && this.status == 200) {
 			var myArr = JSON.parse(this.responseText);
@@ -138,11 +189,10 @@ function myRefresh() {
 
 			if (sensors.length == 0)
 			{
-				h.innerHTML = "NO SENSORS IN REPLY";
+				d.innerHTML = "NO SENSORS IN REPLY";
 			}
 			else if (sensors[0]["readings"].length != 0)
 			{
-				h.innerHTML = sensors[0]["readings"][sensors[0]["readings"].length - 1].toFixed(2);
 				var today = new Date();
 				d.innerHTML = "" + today.getFullYear() + "-" + 
 					String(today.getMonth() + 1).padStart(2, '0') + "-" +
@@ -150,15 +200,12 @@ function myRefresh() {
 					String(today.getHours()).padStart(2, '0') + ":" +
 					String(today.getMinutes()).padStart(2, '0') + ":" +
 					String(today.getSeconds()).padStart(2, '0')
-			} else {
-				h.innerHTML = "UNAVAILABLE";
 			}
 			myRedraw();
 		}
 		else if (this.status == 404)
 		{
 			sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-			h.innerHTML = "UNAVAILABLE";
 			d.innerHTML = "UNAVAILABLE";
 			myRedraw();
 		}
@@ -195,8 +242,8 @@ function myOnLoad() {
 		c.width = 0;
 		c.height = 0;
 
-		c.width = d.offsetWidth - 20;
-		c.height = d.offsetHeight - 20;
+		c.width = d.offsetWidth - 3;
+		c.height = d.offsetHeight - 3;
 		myRedraw();
 	}
 }

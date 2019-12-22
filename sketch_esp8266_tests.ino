@@ -126,8 +126,10 @@ ESP8266WebServer server(80);
 
 struct ServedSensor {
   int allSensorsIndex;
-  inline float const getReading_1h(int index) const { return vtof(_readings_1h[index]); }
-  inline float const getReading_24h(int index) const { return vtof(_readings_24h[index]); }
+//  inline float const getReading_1h(int index) const { return vtof(_readings_1h[index]); }
+//  inline float const getReading_24h(int index) const { return vtof(_readings_24h[index]); }
+  inline String const getReading_1h(int index) const { return vtos(_readings_1h[index]); }
+  inline String const getReading_24h(int index) const { return vtos(_readings_24h[index]); }
 
   inline void addReading_1h(float value) { _readings_1h.push_back_erase_if_full(ftov(value)); }
   inline void addReading_24h(float value) { _readings_24h.push_back_erase_if_full(ftov(value)); }
@@ -139,11 +141,29 @@ struct ServedSensor {
   inline void fill_24h(float val) { _readings_24h.fill(ftov(val)); }
 private:
   int16_t ftov(float v) const {
-    return int16_t(v * 16);
+    return int16_t(v * 100);
+    //return int16_t(v * 16);
   }
-  float vtof(int16_t v) const {
-    return v * 0.0625f;
+  String vtos(int16_t v) const {
+    char buff[12];
+    int end = snprintf(buff, sizeof(buff), "%d", v);
+    while (end < 3)
+    {
+      buff[end++] = '0';
+    }
+    buff[end] = 0;
+
+
+    buff[end+1] = 0;
+    buff[end] = buff[end-1];
+    buff[end-1] = buff[end-2];
+    buff[end-2] = '.';
+
+    return buff;
   }
+//  float vtof(int16_t v) const {
+//    return v * 0.0625f;
+//  }
 
   CircularBuffer<int16_t, 360> _readings_1h;
   CircularBuffer<int16_t, 1440> _readings_24h;
@@ -494,7 +514,8 @@ void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
       if (i != 0) {
         s += ", ";
       }
-      String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i), 2);
+      //String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i), 2);
+      String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i));
       s += val;
     }
     s += "]}\n"; // sensor end
