@@ -159,7 +159,7 @@ struct ConfigSensors {
       // Fake sensor names
       #define NUM_ADC_CHANNELS 6
 
-            // PCB layout was simplified by changing order of channels to the adc
+      // PCB layout was simplified by changing order of channels to the adc
       char ntcIndexToAdcChannelMap[NUM_ADC_CHANNELS] = {7, 6, 5, 4, 0, 1};
 
       for (int i = 0; i < NUM_ADC_CHANNELS; i++)

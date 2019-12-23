@@ -33,9 +33,7 @@
 // TODO: Should we do something when an interface disconnects / reconnects: https://arduino-esp8266.readthedocs.io/en/latest/esp8266wifi/generic-class.html
 // TODO: warn if softAP and network overlaps (web server only serves on one interface in that case)
 // TODO: once connecting to other network, store channel and use it for softap only as well. (current workaround: bring up other network first)
-// TODO: Report values for multiple sensors? (might be limited by RAM)?
 // TODO: store sensors to view in flash filesystem + make them easy to select?
-// TODO: break down sending of different sensors into separate calls to the web server (to be nicer on RAM). see https://github.com/esp8266/Arduino/issues/3205
 #include <DallasTemperature.h>
 
 #include <ESP8266WebServer.h>
@@ -44,20 +42,16 @@
 #include <ArduinoJson.h>
 #include <FS.h>
 #include <Wire.h>
-#include <Adafruit_ADS1015.h>
 
 #include "CircularBuffer.hpp"
 #include "Mcp3208.hpp"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
 const unsigned long time_between_24h_readings_ms = 60000UL;
+
+const int externalLED = 5; // (labeld D1 on PCB)
+
 const int oneWireBus = 4; // vellman vma107: = 4 (labeled D2 on pcb)
-
-//const int I2C_SCL = 5; // vellman vma107: =5 (labeled D1 on pcb) 
-//const int I2C_SDA = 4; // vellman vma107: =13 (labeled D7 on pcb)
-const int16_t I2C_SLAVE = 0x48;
-
-//Adafruit_ADS1115 ads;
 
 OneWire oneWire(oneWireBus);
 DallasTemperature sensors(&oneWire);
@@ -552,6 +546,8 @@ void handleSensors_24h()
 
 void setup()
 {
+  pinMode(externalLED, OUTPUT);
+  digitalWrite(externalLED, 0);
   //Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus (address optional for master)
 
   // Do not automatically connect on power on to the last used access point.
@@ -724,6 +720,8 @@ void setup()
   Serial.println(configSensors.load() ? "Ready":"Failed!");
 
   populateServedSensors();
+
+  digitalWrite(externalLED, HIGH);
 }
 
 // TODO: do not erase data if one of the sensors continued to be active (even if order changed)
@@ -812,25 +810,6 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
   Serial.println();
 }
 
-/*
-float readAnalogSensor(int analogChannel)
-{
-    // READ ADC AND CONVERT TO TEMPERATURE
-  int adc_in = ads.readADC_SingleEnded(analogChannel);
-  float voltage = adc_in * 0.1875e-3; // since default gain 2/3
-  float res = voltage*10e3 / (3.3 - voltage);
-  const float B = 3950;
-  const float R0 = 10000; // NTC resistor, 10k @ 25 deg C
-  const float T0 = 273.15 + 25;
-
-  float temp = B / log(res / (R0*expf(-B/T0))) - 273.15;
-
-  Serial.printf("ADC%d: raw=%d, V=%1.4f V, res=%5.1f Ohm, temp=%2.2f C\n", analogChannel, adc_in, voltage, res, temp);
-
-  return temp;
-}
-*/
-
 float readMcp3208Sensor(int analogChannel)
 {
   // READ ADC AND CONVERT TO TEMPERATURE
@@ -877,12 +856,17 @@ void loop()
       shouldRead24h = (millis() - startMillis_24h) >= time_between_24h_readings_ms;
     }
     while (! (shouldRead1h || shouldRead24h));
-    
+
+    if (shouldRead1h)
+    {
+        digitalWrite(externalLED, LOW);
+    }   
     readSensors(shouldRead1h, shouldRead24h);
 
     if (shouldRead1h) {
       startMillis_1h += time_between_1h_readings_ms;
       shouldRead1h = false;
+      digitalWrite(externalLED, HIGH);
     }
 
     if (shouldRead24h) {
