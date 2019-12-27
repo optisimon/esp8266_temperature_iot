@@ -1,14 +1,25 @@
 <html>
 <head>
+<meta charset="utf-8">
 <title>TempViewer - Settings</title>
 <style>
+body {
+	font: 200% sans-serif;
+}
+
+div, form, button, input {
+	font: 100% sans-serif;
+}
+
 table, th, td {
 	border: 1px solid black;
 	border-collapse: collapse;
+	font: 100% sans-serif;
 }
 th, td {
 	padding-left: 5px;
 	padding-right: 5px;
+	font: 100% sans-serif;
 }
 </style>
 </head>
@@ -55,7 +66,10 @@ var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ]
 
 function renameSensor(sensorId, sensorName) {
 	var newName = prompt("Enter new name for sensor " + sensorId, sensorName)
-	myPatch("api/sensors/" + sensorId, { "name": newName });
+	if (newName != null)
+	{
+		myPatch("api/sensors/" + sensorId, { "name": newName });
+	}
 }
 
 function myPatch(url, data)
@@ -105,7 +119,7 @@ function myRefreshSensors()
 		var s = document.getElementById("sensors");
 		var str = '<legend>Temperature sensors:</legend>\nSelect at most ' +
 					myArr.max_num_active + ' sensors for plotting.<br><table>\n';
-		str += '<tr> <th>Active</th> <th>Name</th> <th>Id</th> <th>Last value</th> <th>Actions</th> </tr>';
+		str += '<tr> <th>Active</th> <th>Name</th> <th>Last value</th> <th>Actions</th> </tr>';
 		for (var i = 0; i < sensors.length; i++)
 		{
 			str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
@@ -114,8 +128,6 @@ function myRefreshSensors()
 			(sensors[i].active ? 'checked>' : '>') + '</td>' +
 
 			'<td>' + wrapSelectingCheckbox(sensors[i].name, i) + '</td>' +
-
-			'<td>' + wrapSelectingCheckbox(sensors[i].id, i) + '</td> ' +
 
 			'<td>' + wrapSelectingCheckbox(sensors[i].lastValue.toFixed(2), i) + '</td>' +
 

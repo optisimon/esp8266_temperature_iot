@@ -481,7 +481,9 @@ void handleSensors()
     if (i != 0) { s += ", "; }
     s += sensorToString(i);
   }
-  s += "]}\n";
+  s += "], \"max_num_active\":";
+  s += String(maxNumServedSensors);
+  s += + "}\n";
   server.send(200, "application/javascript", s);
 }
 

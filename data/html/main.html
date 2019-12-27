@@ -46,7 +46,7 @@ var intervalTimerId = undefined;
 var globalRequestDuration = "";
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
-function myDurationChanged() {  
+function myDurationChanged() {
 	var s = document.getElementById("myDurationSelect");
 	globalRequestDuration = s.options[s.selectedIndex].value;
 	myOnLoad();
