@@ -1,49 +1,75 @@
+# ESP8266 Temperature iot #
 
-Nowadays using SPIFFS (flash) for storing configuration files as well as web pages.
+A small temperature plotting web server.
+Shows temperature readings for either the last hour or the last 24 hours in a web interface.
 
-They need to be flashed separately for the softwaare to work.
+Can be used for monitoring heat, status of accumulator tanks, and so on.
+
+Can be accessed wirelessly over WiFi as an access point.
+Can optionally also connect to another WiFi network to make itself accessible there.
+(Make sure its access point and the other network don't have overlapping IP address ranges, or you'll have problems)
+
+Current hardware consist of a custom PCB with a MCP3208 ADC and a Wemos D1 mini pro ESP8266 module.
+Up to 6 NTC sensors can be attached directly to the PCB.
+Alternatively, digital one wire temperature sensors (DS18B20) could be attached.
+
+The PCB layout (kicad design files as well as gerber files) are available at:
+https://github.com/optisimon/esp8266_temperature_iot_PCB
+
+The 6 channel limit for number of simultaneous temperature plots was arbitrarily set,
+and can probably be increased easily (but then having all curves visible at the same time in the web GUI could be messy).
+
+
+# Implementation details #
+
+Nowadays using SPIFFS (a flash file system) for storing configuration files as well as web pages on the esp8266. This unfortunately makes the workflow slightly more complicated, but there are lots of tutorials explaining this such as:
+https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
+https://tttapa.github.io/ESP8266/Chap11%20-%20SPIFFS.html
+https://github.com/pellepl/spiffs/wiki/FAQ
+
 
 ## Summary of settings in the arduino environment which seem relevant: ##
 
 Arduino 1.8.9 settings:
-NodeMCU 1.0 (ESP-12E Module)
-Flash Size: 4M (1M SPIFFS)
+LOLIN(WEMOS) D1 mini Pro
+Flash Size: 16M (14M SPIFFS)
 
 Installed libraries:
 ArduinoJson 6.11.3
 DallasTemperature 3.8.0
 OneWire 2.3.4
-ADS1X15 by Adafruit Version 1.0.1
 
 Installed tools:
 https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
 
 
-### Summary of json objects available: ###
+### Summary of json API: ###
 
-GET returns status code 200 on success
-PATCH returns status code 200 on success (and the text OK)
-
-
-
-|| access || uri               || notes ||
- | GET     | /api/sensors           | All sensors detected at power on |
- | GET     | /api/sensors/SENSOR_ID | detailed information for one sensor |
- | PATCH   | /api/sensors/SENSOR_ID | update name or active status for sensor |
- | GET     | /api/readings/1h       | all readings for active sensors (last hour) |
- | GET     | /api/readings/24h      | all readings for active sensors (last 24 hours) |
+HTTP_GET returns status code 200 on success
+HTTP_PATCH returns status code 200 on success (and the text OK)
 
 
-NOT AVAILABLE YET:
- | GET     | /api/wifi/softap       | soft AP settings (SSID, password (will return stars), ip, netmask, gateway |
- | PATCH   | /api/wifi/softap       | update settings above |
 
- | GET     | /api/wifi/scan         | list of detected networks (slow) |
- | GET     | /api/wifi/station      | SSID, password (will return stars), enable, etc for another WiFi to connect to |
- | PATCH   | /api/wifi/station      | SSID, password, enable, etc for another WiFi to connect to |
+| access  | url                    | notes |
+|---------|------------------------|-------|
+| GET     | /api/sensors           | All sensors detected at power on |
+| GET     | /api/sensors/SENSOR_ID | detailed information for one sensor |
+| PATCH   | /api/sensors/SENSOR_ID | update name or active status for sensor. NOT persisted to flash automatically |
+| GET     | /api/readings/1h       | all readings for active sensors (last hour) |
+| GET     | /api/readings/24h      | all readings for active sensors (last 24 hours) |
+| GET     | /api/wifi/softap       | soft AP settings (SSID, password (will return stars), ip, netmask, gateway |
+| PATCH   | /api/wifi/softap       | update settings above. Is persisted to flash automatically |
+| GET     | /api/wifi/network      | SSID, password (will return stars), enable, etc for another WiFi to connect to |
+| PATCH   | /api/wifi/network      | SSID, password, enable, etc for another WiFi to connect to. Is persisted to flash automatically |
+| PATCH   | /api/persist           | persist sensor settings to flash. TODO: use for all settings or separate in sensors/ and wifi/ ? |
 
- | PATCH   | /api/persist           | store settings to flash |
+*NOT IMPLEMENTED:*
+| access  | url                    | notes |
+|---------|------------------------|-------|
+| GET     | /api/wifi/scan         | list of detected networks (slow) |
 
+
+<pre>
 ==== /api/sensors ====
 
 {
@@ -129,7 +155,8 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
 
 ==== /api/wifi/softap ====
 
-TODO: should channel be available (will change if running network as well, since they need to be on the same channel
+NOTE: the password field will allways return "********" for security reasons
+TODO: should channel be available (will change if running against a network as well, since they need to be on the same channel
 
 {
   "ssid": "TestAP",
@@ -147,6 +174,9 @@ TODO: NOT DECIDED YET (since this is a slow operation?)
 
 ==== /api/wifi/network ====
 
+NOTE: the password field will allways return "********" for security reasons
+TODO: consider adding read back possibility of DHCP lease network parameters?
+
 {
   "enabled": 1,
   "assignment": "dhcp|static",
@@ -156,18 +186,13 @@ TODO: NOT DECIDED YET (since this is a slow operation?)
     "ip": "192.168.1.1",
     "gateway": "192.168.1.1",
     "subnet": "255.255.255.0"
-  },
-  "assigned": {
-    "ip": "192.168.1.1",
-    "gateway": "192.168.1.1",
-    "subnet": "255.255.255.0"
   }
 }
 
 ==== /api/persist ====
 
-"persist_now" always reads back 0. If set non-zero, settings are stored to flash
-"unsaved_changes" indicates whether there are any unsaved changes
+"persist_now" always reads back 0. If set non-zero, sensor settings are stored to flash.
+"unsaved_changes" currently always return 1 (TODO: implement?)
 
 {
   "persist_now": 0,
@@ -204,7 +229,6 @@ Have these files:
 }
 
 ==== /config/wifi/network ====
-
 {
   "enabled": 1,
   "assignment": "dhcp|static",
@@ -216,3 +240,4 @@ Have these files:
     "subnet": "255.255.255.0"
   }
 }
+</pre>
