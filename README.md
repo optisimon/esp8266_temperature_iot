@@ -1,15 +1,22 @@
-# ESP8266 Temperature iot #
+# ESP8266 Temperature plotting iot #
 
-A small temperature plotting web server.
-Shows temperature readings for either the last hour or the last 24 hours in a web interface.
+Project homepage: https://optisimon.com/esp8266/arduino/temperature/monitoring/2020/01/07/esp8266-temperature-plotting-iot/
 
-Can be used for monitoring heat, status of accumulator tanks, and so on.
+This project makes it possible to monitor temperature readings from a number of sensors simultaneously.
 
-Can be accessed wirelessly over WiFi as an access point.
-Can optionally also connect to another WiFi network to make itself accessible there.
-(Make sure its access point and the other network don't have overlapping IP address ranges, or you'll have problems)
+The frontend is basically a small temperature plotting html page.
 
-Current hardware consist of a custom PCB with a MCP3208 ADC and a Wemos D1 mini pro ESP8266 module.
+A static web page is served to anyone connecting. A bit of javascript periodically request a json object containing all values for the curves to plot, and a html canvas element is used for actually drawing the data.
+
+The user can choose between a plot containing readings from the last 24 hours, or a plot for the last hour.
+
+The web interface also allows renaming all sensors arbitrarily, selection of which sensors to store / plot, as well as allows changing network settings.
+
+It can be accessed wirelessly over WiFi as it’s pretending to be an access point (with some limitations, such as not allowing more than four clients connected simultaneously). The software can optionally also connect to another WiFi network to make itself accessible there. (Make sure its pretended access point IP and the other network don’t have overlapping IP address ranges. That don’t seem to be supported at all by the ESP8266 network stack).
+
+The software provides an external api which is well documented and straight forward to use.
+
+The current hardware consist of a custom PCB with a MCP3208 ADC and a Wemos D1 mini pro ESP8266 module.
 Up to 6 NTC sensors can be attached directly to the PCB.
 Alternatively, digital one wire temperature sensors (DS18B20) could be attached.
 
@@ -46,6 +53,7 @@ https://github.com/esp8266/arduino-esp8266fs-plugin/tree/0.4.0
 ### Summary of json API: ###
 
 HTTP_GET returns status code 200 on success
+
 HTTP_PATCH returns status code 200 on success (and the text OK)
 
 
@@ -63,7 +71,9 @@ HTTP_PATCH returns status code 200 on success (and the text OK)
 | PATCH   | /api/wifi/network      | SSID, password, enable, etc for another WiFi to connect to. Is persisted to flash automatically |
 | PATCH   | /api/persist           | persist sensor settings to flash. TODO: use for all settings or separate in sensors/ and wifi/ ? |
 
+
 *NOT IMPLEMENTED:*
+
 | access  | url                    | notes |
 |---------|------------------------|-------|
 | GET     | /api/wifi/scan         | list of detected networks (slow) |
