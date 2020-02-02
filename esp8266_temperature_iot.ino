@@ -105,6 +105,8 @@ ConfigSoftAP configSoftAP;
 #include "ConfigNetwork.hpp"
 ConfigNetwork configNetwork;
 
+#include "ConfigPresentation.hpp"
+ConfigPresentation configPresentation;
 
 bool serveFromSpiffs(String const & uri, const char* contenttype="text/html");
 String deviceAddressToString(DeviceAddress const & da);
@@ -261,15 +263,48 @@ void returnConfigReplaceField(const char* location, const char* fieldToReplace, 
     return;
   }
 
-  if (!json.containsKey(fieldToReplace))
+  if (fieldToReplace != nullptr)
   {
-    sendError("Config file damaged??");
-    return;
+
+    if (!json.containsKey(fieldToReplace) || newValue == nullptr)
+    {
+      sendError("Config file damaged or invalid newValue??");
+      return;
+    }
+    json[fieldToReplace] = newValue;
   }
-  json[fieldToReplace] = "********";
   String response;
   serializeJson(json, response);
   server.send(200, "application/javascript", response);
+}
+
+void handlePresentation()
+{
+  if (server.method() == HTTP_GET)
+  {
+    returnConfigReplaceField("/config/presentation", nullptr, nullptr);
+  }
+  else if (server.method() == HTTP_PATCH && server.hasArg("plain"))
+  {
+    String const json = server.arg("plain");
+
+    bool ok = configPresentation.patch(json.c_str());
+    if (ok && configPresentation.isModified()) {
+      ok = configPresentation.save(); // TODO: determine if we automatically should save to flash or not...
+    }
+    if (ok)
+    {
+      server.send(200, "text/plain", "OK");
+    }
+    else
+    {
+      server.send(400, "text/plain", "ERROR"); // TODO: which status code???
+    }
+  }
+  else
+  {
+    sendError("???");
+  }
 }
 
 void handleWifiSoftAP()
@@ -584,6 +619,11 @@ void setup()
   Serial.println( networkLoadSuccess ? "Ready" : "Failed!");
   Serial.flush();
 
+  Serial.print("Loading Presentation config from flash ... ");
+  bool presentationLoadSuccess = configPresentation.load();
+  Serial.println( presentationLoadSuccess ? "Ready" : "Failed!");
+  Serial.flush();
+
   // TODO: connect to wifi network etc...
   if (configNetwork.getEnabled())
   {
@@ -656,6 +696,7 @@ void setup()
   //server.on("/main.html", handleRoot);
   //server.on("/spiffs_test.html", spiffsTest);
   //server.on("/settings.html", handleSettings);
+  server.on("/api/presentation", handlePresentation);
   server.on("/api/sensors", handleSensors);
   server.on("/api/sensors/", handleSensors);
   server.on("/api/readings/1h", handleSensors_1h);

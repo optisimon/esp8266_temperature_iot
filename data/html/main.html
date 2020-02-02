@@ -41,8 +41,9 @@ Sorry, your browser does not support the canvas element!
 </canvas>
 </div>
 
-<script>
+<script type="text/javascript" charset="utf-8">
 var intervalTimerId = undefined;
+var globalPresentation = {"yincrement": 10.0, "ymin": 0.0, "ymax": 100.0, "unit": "C"}
 var globalRequestDuration = "";
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
 
@@ -80,9 +81,14 @@ function myRedraw() {
 	ctx.beginPath();
 	ctx.lineWidth = '1';
 	var scaleX = c.width * 1.0 / sensors[0]["readings"].length;
-	var maxY = 90;
-	var divisionsY = 9;
-	var scaleY = c.height * 1.0 / maxY;
+	var minY = globalPresentation["ymin"];
+	var maxY = globalPresentation["ymax"];
+	var divisionsY = Math.floor((maxY - minY) * 1.0 / globalPresentation["yincrement"]);
+	var scaleY = c.height * 1.0 / (maxY - minY);
+
+	var degToPixel = (deg)=>{
+		return c.height - (deg - minY) * scaleY;
+	} 
 
 	// Make grid
 	if (globalRequestDuration == "1h")
@@ -112,12 +118,13 @@ function myRedraw() {
 	ctx.stroke();
 
 	// draw temp curves
+	//start_time = performance.now();
 	let legendTextLength = 0;
 	let curveColors=['black', 'red', 'green', 'blue', 'gray', 'gray']
 	for (var sensor = 0; sensor < sensors.length; sensor++)
 	{
 		ctx.beginPath();
-		ctx.moveTo(0, c.height - scaleY * sensors[sensor]["readings"][0]);
+		ctx.moveTo(0, degToPixel(sensors[sensor]["readings"][0]));
 
 		if (sensor < curveColors.length)
 			ctx.strokeStyle = curveColors[sensor];
@@ -128,13 +135,18 @@ function myRedraw() {
 
 		ctx.lineWidth = '3';
 		for (var i = 0; i < sensors[sensor]["readings"].length; i++) {
-			ctx.lineTo(i * scaleX, c.height - scaleY * sensors[sensor]["readings"][i]);
+			ctx.lineTo(i * scaleX, degToPixel(sensors[sensor]["readings"][i]));
 		}
 
-		let txt = sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")";
+		let txt = sensors[sensor]["name"] + 
+			" (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(1) +  " °" +
+			globalPresentation["unit"] + ")";
 		legendTextLength = Math.max(legendTextLength, ctx.measureText(txt).width);
 		ctx.stroke();
 	}
+	//stop_time = performance.now();
+	//console.log("curve drawing took " + (stop_time - start_time) + " ms"); // 7 .. 13 ms
+
 
 	// Draw left and right text
 	ctx.beginPath();
@@ -142,7 +154,7 @@ function myRedraw() {
 	ctx.fillStyle = ctx.strokeStyle;
 	for (var y = 0; y < divisionsY; y++)
 	{
-		let txt = ((divisionsY - y) * maxY / divisionsY).toFixed(1);
+		let txt = (minY + (divisionsY - y) * (maxY - minY) / divisionsY).toFixed(1);
 		ctx.fillText(txt, 5, y * (c.height - 1) / divisionsY - 1);
 
 		// Also draw text to the right
@@ -170,13 +182,31 @@ function myRedraw() {
 		ctx.fillStyle = ctx.strokeStyle;
 		ctx.fillRect(rightOfYValues, (sensor + 1) * fontHeight - 5, fontHeight/2, fontHeight/2)
 		ctx.textBaseline = 'middle';
-		let txt = sensors[sensor]["name"] + " (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(2) + ")"
+		let txt = sensors[sensor]["name"] + 
+			" (" + sensors[sensor]["readings"][sensors[sensor]["readings"].length - 1].toFixed(1) + " °" +
+			globalPresentation["unit"] + ")";
 		ctx.fillText(txt, rightOfYValues + 10 + fontHeight / 2, 5 + (sensor + 1) * fontHeight);
 		ctx.textBaseline = 'alphabetic';
 		ctx.stroke();
 	}
-
 }
+
+function apiGet(url, callbackSuccess, callbackError=()=>{}) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			var tmp = JSON.parse(this.responseText);
+			callbackSuccess(tmp);
+		}
+		else if (this.status == 404)
+		{
+			callbackError();
+		}
+	};
+	xmlhttp.open("GET", url, true);
+	xmlhttp.send();
+}
+
 
 function myRefresh() {
 	var xmlhttp = new XMLHttpRequest();
@@ -194,6 +224,28 @@ function myRefresh() {
 			else if (sensors[0]["readings"].length != 0)
 			{
 				var today = new Date();
+
+				// If required, convert from centigrades to Fahrenheit or Kelvin
+				for (var sensor = 0; sensor < sensors.length; sensor++)
+				{
+					if (globalPresentation["unit"] == "F")
+					{
+						for (var i = 0; i < sensors[sensor]["readings"].length; i++)
+						{
+							sensors[sensor]["readings"][i] = sensors[sensor]["readings"][i] * 1.8 + 32;	
+						}
+					}
+					if (globalPresentation["unit"] == "K")
+					{
+						for (var i = 0; i < sensors[sensor]["readings"].length; i++)
+						{
+							sensors[sensor]["readings"][i] = sensors[sensor]["readings"][i] + 273.15;	
+						}
+
+					}
+				}
+
+
 				d.innerHTML = "" + today.getFullYear() + "-" + 
 					String(today.getMonth() + 1).padStart(2, '0') + "-" +
 					String(today.getDate()).padStart(2, '0') + " " +
@@ -215,6 +267,15 @@ function myRefresh() {
 }
 
 function myOnLoad() {
+
+	apiGet("/api/presentation", (data)=>{
+		if ("yincrement" in data && "ymin" in data && "ymax" in data && "unit" in data)
+		{
+			globalPresentation = data;
+		}
+	});
+	
+
 	var c = document.getElementById("myCanvas");
 	var ctx = c.getContext("2d");
 

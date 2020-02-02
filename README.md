@@ -19,6 +19,8 @@ The user can choose between a plot containing readings from the last 24 hours, o
 
 The web interface also allows renaming all sensors arbitrarily, selection of which sensors to store / plot, as well as allows changing network settings.
 
+You also have a selection of plot options: minimum and maximum temperature, graduation steps, and the choice between degrees Celsius, Fahrenheit, as well as Kelvin.
+
 It can be accessed wirelessly over WiFi as it’s pretending to be an access point (with some limitations, such as not allowing more than four clients connected simultaneously). The software can optionally also connect to another WiFi network to make itself accessible there. (Make sure its pretended access point IP and the other network don’t have overlapping IP address ranges. That don’t seem to be supported at all by the ESP8266 network stack).
 
 The software provides an external api which is well documented and straight forward to use.
@@ -77,7 +79,8 @@ HTTP_PATCH returns status code 200 on success (and the text OK)
 | GET     | /api/wifi/network      | SSID, password (will return stars), enable, etc for another WiFi to connect to |
 | PATCH   | /api/wifi/network      | SSID, password, enable, etc for another WiFi to connect to. Is persisted to flash automatically |
 | PATCH   | /api/persist           | persist sensor settings to flash. TODO: use for all settings or separate in sensors/ and wifi/ ? |
-
+| GET     | /api/presentation      | presentation settings (y range, yincrement, and Celsius / Fahrenheit / Kelvin) |
+| PATCH   | /api/presentation      | presentation settings (y range, yincrement, and Celsius / Fahrenheit / Kelvin).  |
 
 *NOT IMPLEMENTED:*
 
@@ -216,7 +219,19 @@ TODO: consider adding read back possibility of DHCP lease network parameters?
   "unsaved_changes": 1
 }
 
+==== /api/presentation ====
 
+Default presentation format for web clients.
+NOTE: Sensor readings will always be in Celsius. Purpose is for javascript clients to do unit conversion if needed
+
+unit can be either "C", "F", or "K".
+yincrement, ymin, and ymax will be in the same specified unit.
+{
+  "yincrement": 10.0,
+  "ymin": 0.0,
+  "ymax": 100.0,
+  "unit": "C"
+}
 
 === Flash file system ===
 
@@ -224,6 +239,7 @@ Have these files:
   "config/wifi/softap"
   "config/wifi/network"
   "config/sensors"
+  "config/presentation"
 
 
 ==== config/sensors (flash FS) ====
@@ -257,4 +273,13 @@ Have these files:
     "subnet": "255.255.255.0"
   }
 }
+
+==== /config/presentation ====
+{
+  "yincrement": 10.0,
+  "ymin": 0.0,
+  "ymax": 100.0,
+  "unit": "C|F|K"
+}
+
 </pre>

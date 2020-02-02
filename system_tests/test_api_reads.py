@@ -145,6 +145,19 @@ class Readings(unittest.TestCase):
                 self.assertTrue(val >= -100 and val <= 120)
 
 
+class Presentation(unittest.TestCase):
+    def test_required_fields_present(self):
+            r = requests.get("http://%s/api/presentation" % ip)
+            self.assertEqual(200, r.status_code)
+            self.assertEqual("application/javascript", r.headers['content-type'])
+
+            j = r.json()
+
+            # all required fields present
+            required_fields = ("ymin", "ymax", "yincrement", "unit")
+            self.assertTrue(all([x in j for x in required_fields]))
+
+
 class SoftAP(unittest.TestCase):
     def test_real_password_not_returned(self):
         r = requests.get("http://%s/api/wifi/softap" % ip)

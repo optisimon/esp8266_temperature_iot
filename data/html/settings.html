@@ -40,6 +40,11 @@ Settings
 </fieldset>
 </form>
 
+<form id="presentation-form" onsubmit="updatePresentation(); return false;">
+<fieldset id="presentation">
+	<legend>Waiting for presentation settings:</legend>
+</fieldset>
+</form>
 
 <form id="softap-form" onsubmit="updateSoftAP(); return false;">
 <fieldset id="softap">
@@ -59,7 +64,7 @@ Settings
 </fieldset>
 -->
 </div>
-<script>
+<script type="text/javascript" charset="utf-8">
 
 // TODO: remove this?
 var sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
@@ -70,6 +75,22 @@ function renameSensor(sensorId, sensorName) {
 	{
 		myPatch("api/sensors/" + sensorId, { "name": newName });
 	}
+}
+
+function apiGet(url, callbackSuccess, callbackError=()=>{}) {
+	var xmlhttp = new XMLHttpRequest();
+	xmlhttp.onreadystatechange = function() {
+		if (this.readyState == 4 && this.status == 200) {
+			var tmp = JSON.parse(this.responseText);
+			callbackSuccess(tmp);
+		}
+		else if (this.status == 404)
+		{
+			callbackError();
+		}
+	};
+	xmlhttp.open("GET", url, true);
+	xmlhttp.send();
 }
 
 function myPatch(url, data)
@@ -165,6 +186,67 @@ function myRefreshSensors()
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
+
+function myRefreshPresentation()
+{
+	apiGet("api/presentation", (data)=>{
+		var s = document.getElementById("presentation")
+			var str = '<legend>Presentation settings:</legend>\n<table>\n' +
+			'<tr> <th>Parameter</th> <th>Value</th> </tr>';
+			str += '<tr>\n<td>Presentation unit</td><td>';
+
+			str += '<input type="radio" id="presentation-unit-celsius" name="unit" value="C" ' +
+					(data["unit"] === "C" ? "checked":"") + ' name="unit"' +
+					'><label for="presentation-unit-celsius">Celsius</label><br>\n';
+
+			str += '<input type="radio" id="presentation-unit-fahrenheit" name="unit" value="F" ' +
+					(data["unit"] === "F" ? "checked":"") + ' name="unit"' +
+					'><label for="presentation-unit-fahrenheit">Fahrenheit</label><br>\n';
+
+			str += '<input type="radio" id="presentation-unit-kelvin" name="unit" value="K" ' +
+					(data["unit"] === "K" ? "checked":"") + ' name="unit"' +
+					'><label for="presentation-unit-kelvin">Kelvin</label>\n';
+			str += '</td></tr>\n';
+
+			str += '<tr><td>max value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymax" value="' + data["ymax"] + '"></td></tr>\n';
+
+			str += '<tr><td>min value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymin" value="' + data["ymin"] + '"></td></tr>\n';
+
+			str += '<tr><td>Vertical increment</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="yincrement" value="' + data["yincrement"] + '"></td></tr>\n';
+
+			str += '</table>\n';
+			str += '<input type="submit" value="Update presentation settings">';
+			s.innerHTML = str;
+	}, ()=>{
+		var s = document.getElementById("presentation");
+		s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading presentation</p>";
+	})
+}
+
+function updatePresentation()
+{
+	alert("WARNING: updating presentation configuration!");
+	var elements = document.getElementById("presentation-form").elements;
+
+	var patch = { };
+
+	for (var i = 0, e; e = elements[i++];) {
+		if (e.type === "text" && e.value != "")
+		{
+			patch[e.name] = parseFloat(e.value);
+		}
+		if (e.type==="radio" && e.checked)
+		{
+			patch[e.name] = e.value;
+		}
+	}
+
+	myPatch("api/presentation", patch);
+}
+
 
 function updateSoftAP()
 {
@@ -395,6 +477,7 @@ function myRefreshPersist()
 function myRefresh()
 {
 	myRefreshSensors();
+	myRefreshPresentation();
 	myRefreshSoftAP();
 	myRefreshNetwork();
 //	myRefreshPersist();
