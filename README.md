@@ -149,7 +149,8 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
       "name": "upper",
       "readings": [0.00, 0.00, 0.00, ...]
     }
-  ]
+  ],
+  "samples_since_boot": 147239
 }
 
 
@@ -169,7 +170,8 @@ where 28ff98fd6d14042e is the sensor ID of one sensor attached at power on
       "name": "upper",
       "readings": [0.00, 0.00, 0.00, ...]
     }
-  ]
+  ],
+  "samples_since_boot": 147239
 }
 
 

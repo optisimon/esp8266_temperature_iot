@@ -112,6 +112,9 @@ class Readings(unittest.TestCase):
                 self.assertEqual(float, type(val))
                 self.assertTrue(val >= -100 and val <= 120)
 
+        self.assertTrue("samples_since_boot" in j)
+        self.assertEqual(int, type(j["samples_since_boot"]))
+
     def test_readings_24h(self):
         r = requests.get("http://%s/api/readings/24h" % ip)
         self.assertEqual(200, r.status_code)
@@ -144,6 +147,8 @@ class Readings(unittest.TestCase):
                 self.assertEqual(float, type(val))
                 self.assertTrue(val >= -100 and val <= 120)
 
+        self.assertTrue("samples_since_boot" in j)
+        self.assertEqual(int, type(j["samples_since_boot"]))
 
 class Presentation(unittest.TestCase):
     def test_required_fields_present(self):

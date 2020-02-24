@@ -165,6 +165,8 @@ private:
   CircularBuffer<int16_t, 1440> _readings_24h;
 };
 
+uint32_t num_samples_since_boot_1h = 0;
+uint32_t num_samples_since_boot_24h = 0;
 const int16_t maxNumServedSensors = 6;
 int16_t numServedSensors = 0;
 ServedSensor servedSensors[maxNumServedSensors] = {{}, {}, {}, {}, {}, {}}; // internal compiler error if only '= {};'
@@ -524,7 +526,7 @@ void handleSensors()
 
 void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
 {
-
+  String numSamples(serve_24h_instead_of_1h ? num_samples_since_boot_24h : num_samples_since_boot_1h);
   String s = R"rawliteral({"sensors":[)rawliteral";
   if (numServedSensors == 0)
   {
@@ -543,7 +545,7 @@ void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
     for (int i = 0; i < N; i++)
     {
       if (i != 0) {
-        s += ", ";
+        s += ",";
       }
       //String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i), 2);
       String val(serve_24h_instead_of_1h ? servedSensors[k].getReading_24h(i) : servedSensors[k].getReading_1h(i));
@@ -553,7 +555,7 @@ void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
 
     if (k == numServedSensors - 1)
     {
-      s += "]}\n"; // end of everything
+      s += "], \"samples_since_boot\":" + numSamples + "}\n"; // end of everything
     }
 
     if (k == 0)
@@ -767,11 +769,12 @@ void setup()
   digitalWrite(externalLED, HIGH);
 }
 
-// TODO: do not erase data if one of the sensors continued to be active (even if order changed)
 void populateServedSensors()
 {
   // Serve the first sensors selected as active (but not too many)
   numServedSensors = 0;
+  num_samples_since_boot_1h = 0;
+  num_samples_since_boot_24h = 0;
   for(int i = 0; i < configSensors.numAllSensors; i++)
   {
     Sensor & cs = configSensors.allSensors[i];
@@ -851,6 +854,8 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
     Serial.print(" ");
   }
   Serial.println();
+  if (shouldRead1h) { num_samples_since_boot_1h++; }
+  if (shouldRead24h) { num_samples_since_boot_24h++; }
 }
 
 float readMcp3208Sensor(int analogChannel)
