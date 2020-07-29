@@ -216,15 +216,16 @@ function myRefresh() {
 		if (this.readyState == 4 && this.status == 200) {
 			var myArr = JSON.parse(this.responseText);
 			sensors = myArr["sensors"];
+			var today = new Date();
 
 			if (sensors.length == 0)
 			{
 				d.innerHTML = "NO SENSORS IN REPLY";
+				myRedraw();
 			}
 			else if (sensors[0]["readings"].length != 0)
 			{
-				var today = new Date();
-
+				d.innerHTML = "Updating...";
 				// If required, convert from centigrades to Fahrenheit or Kelvin
 				for (var sensor = 0; sensor < sensors.length; sensor++)
 				{
@@ -245,7 +246,7 @@ function myRefresh() {
 					}
 				}
 
-
+				myRedraw();
 				d.innerHTML = "" + today.getFullYear() + "-" + 
 					String(today.getMonth() + 1).padStart(2, '0') + "-" +
 					String(today.getDate()).padStart(2, '0') + " " +
@@ -253,7 +254,7 @@ function myRefresh() {
 					String(today.getMinutes()).padStart(2, '0') + ":" +
 					String(today.getSeconds()).padStart(2, '0')
 			}
-			myRedraw();
+			
 		}
 		else if (this.status == 404)
 		{

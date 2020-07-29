@@ -165,6 +165,8 @@ private:
   CircularBuffer<int16_t, 1440> _readings_24h;
 };
 
+String scratchpad;
+
 uint32_t num_samples_since_boot_1h = 0;
 uint32_t num_samples_since_boot_24h = 0;
 const int16_t maxNumServedSensors = 6;
@@ -527,7 +529,8 @@ void handleSensors()
 void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
 {
   String numSamples(serve_24h_instead_of_1h ? num_samples_since_boot_24h : num_samples_since_boot_1h);
-  String s = R"rawliteral({"sensors":[)rawliteral";
+  String & s = scratchpad;
+  s = R"rawliteral({"sensors":[)rawliteral";
   if (numServedSensors == 0)
   {
     s += "]}\n"; // end of everything
@@ -566,6 +569,7 @@ void handleSensors_1h_or_24h(bool serve_24h_instead_of_1h = false)
     {
       server.sendContent(s);
     }
+
     s = "";
   }
   server.sendContent(""); // To signal no more content
@@ -585,6 +589,7 @@ void handleSensors_24h()
 
 void setup()
 {
+  scratchpad.reserve(4300);
   pinMode(externalLED, OUTPUT);
   digitalWrite(externalLED, 0);
   //Wire.begin(I2C_SDA, I2C_SCL); // join i2c bus (address optional for master)

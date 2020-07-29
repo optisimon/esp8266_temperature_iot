@@ -76,7 +76,7 @@ struct ConfigNetwork
     String subnet = _staticSubnet.toString();
     
     StaticJsonDocument<512> json;
-    json["enabled"] = _enabled;
+    json["enabled"] = int(_enabled);
     json["assignment"] = (_assignment == Assignment::DHCP) ? "dhcp":"static";
     json["ssid"] = _ssid;
     json["password"] = _password;
