@@ -37,14 +37,14 @@ Settings
 <form id="sensors-form" onsubmit="updateSensors(this); return false;">
 <fieldset id="sensors"><legend>Temperature sensors:</legend>
 	Select at most <span id="max_num_active">undefined</span> sensors for plotting.<br>
-	<table id="sensors-table"><tr><th>Waiting for sensor settings</th></tr></table>
+	<table id="sensors-table"><tr><th>Waiting for sensor settings</th></tr></table><br>
 	<input type="submit" name="btn" value="Save Sensor information">
 </fieldset>
 </form>
 
 <form id="presentation-form" onsubmit="updatePresentation(this); return false;">
 <fieldset id="presentation"><legend>Presentation settings:</legend>
-	<table id="presentation-table"><tr><th>Waiting for presentation settings</th></tr></table>
+	<table id="presentation-table"><tr><th>Waiting for presentation settings</th></tr></table><br>
 	<input type="submit" name="btn" value="Update presentation settings">
 </fieldset>
 </form>
@@ -52,13 +52,19 @@ Settings
 <form id="softap-form" onsubmit="updateSoftAP(this); return false;">
 <fieldset id="softap"><legend>SoftAP settings:</legend>
 	<table id="softap-table"><tr><th>Waiting for SoftAP settings</th></tr></table>
+	<p><b>NOTE:</b> Saved network settings won't be applied until the unit is power cycled.</p>
 	<input type="submit" name="btn" value="Save softAP settings">
 </fieldset>
 </form>
 
 <form id="network-form" onsubmit="updateNetwork(this); return false;">
 <fieldset id="network"><legend>Network settings:</legend>
+	<p><b>WARNING:</b> make sure that the softAP network and this network can't have overlapping adresses
+		(by adjusting IP adresses and netmasks appropriately).
+		Otherwise it might be hard to connect without reflashing.
+	</p>
 	<table id="network-table"><tr><th>Waiting for network settings</th></tr></table>
+	<p><b>NOTE:</b> Saved network settings won't be applied until the unit is power cycled.</p>
 	<input type="submit" name="btn" value="Save external network settings">
 </fieldset>
 </form>
