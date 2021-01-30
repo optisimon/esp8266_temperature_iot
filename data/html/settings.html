@@ -34,36 +34,37 @@ Settings
 
 <div id="settings">
 
-<form id="sensors-form" onsubmit="updateSensors(); return false;">
-<fieldset id="sensors">
-	<legend>Waiting for sensor settings:</legend>
+<form id="sensors-form" onsubmit="updateSensors(this); return false;">
+<fieldset id="sensors"><legend>Temperature sensors:</legend>
+	Select at most <span id="max_num_active">undefined</span> sensors for plotting.<br>
+	<table id="sensors-table"><tr><th>Waiting for sensor settings</th></tr></table>
+	<input type="submit" name="btn" value="Save Sensor information">
 </fieldset>
 </form>
 
-<form id="presentation-form" onsubmit="updatePresentation(); return false;">
-<fieldset id="presentation">
-	<legend>Waiting for presentation settings:</legend>
+<form id="presentation-form" onsubmit="updatePresentation(this); return false;">
+<fieldset id="presentation"><legend>Presentation settings:</legend>
+	<table id="presentation-table"><tr><th>Waiting for presentation settings</th></tr></table>
+	<input type="submit" name="btn" value="Update presentation settings">
 </fieldset>
 </form>
 
-<form id="softap-form" onsubmit="updateSoftAP(); return false;">
-<fieldset id="softap">
-	<legend>Waiting for softap settings:</legend>
+<form id="softap-form" onsubmit="updateSoftAP(this); return false;">
+<fieldset id="softap"><legend>SoftAP settings:</legend>
+	<table id="softap-table"><tr><th>Waiting for SoftAP settings</th></tr></table>
+	<input type="submit" name="btn" value="Save softAP settings">
 </fieldset>
 </form>
 
-<form id="network-form" onsubmit="updateNetwork(); return false;">
-<fieldset id="network">
-	<legend>Waiting for network settings:</legend>
+<form id="network-form" onsubmit="updateNetwork(this); return false;">
+<fieldset id="network"><legend>Network settings:</legend>
+	<table id="network-table"><tr><th>Waiting for network settings</th></tr></table>
+	<input type="submit" name="btn" value="Save external network settings">
 </fieldset>
 </form>
 
-<!--
-<fieldset id="persist">
-	<legend>Persistence:</legend>
-</fieldset>
--->
 </div>
+
 <script type="text/javascript" charset="utf-8">
 
 // TODO: remove this?
@@ -117,10 +118,27 @@ function handleClick(checkbox) {
 	console.log("Checkbox click callback:" + JSON.stringify(checkbox.checked));
 }
 
-function updateSensors()
+function submit_btn_save(frm)
 {
-	alert("WARNING: updating Sensors configuration!");
+	var btn = frm.elements.namedItem('btn');
+	if (btn.disabled)
+		return;
+	btn.old_value = btn.value;
+	btn.disabled = true;
+	btn.value = "saving to flash!";
+}
+
+function submit_btn_restore(frm)
+{
+	var btn = frm.elements.namedItem('btn');
+	setTimeout(function(){btn.value = btn.old_value; btn.disabled = false; }, 3000);
+}
+
+function updateSensors(frm)
+{
+	submit_btn_save(frm);
 	myPatch('api/persist', {'persist_now':1});
+	submit_btn_restore(frm);
 }
 
 function myRefreshSensors()
@@ -128,7 +146,6 @@ function myRefreshSensors()
 	var xmlhttp = new XMLHttpRequest();
 	var url = "api/sensors";
 	xmlhttp.onreadystatechange = function() {
-		//var d = document.getElementById("myLastUpdate");
 		if (this.readyState == 4 && this.status == 200) {
 			var myArr = JSON.parse(this.responseText);
 			sensors = myArr["sensors"];
@@ -137,10 +154,9 @@ function myRefreshSensors()
 				return '<label for="' + sensors[i].id + '">' + str + '</label>';
 			}
 
-		var s = document.getElementById("sensors");
-		var str = '<legend>Temperature sensors:</legend>\nSelect at most ' +
-					myArr.max_num_active + ' sensors for plotting.<br><table>\n';
-		str += '<tr> <th>Active</th> <th>Name</th> <th>Last value</th> <th>Actions</th> </tr>';
+		document.getElementById("max_num_active").innerHTML = "" + myArr.max_num_active;
+		var s = document.getElementById("sensors-table");
+		var str = '<tr> <th>Active</th> <th>Name</th> <th>Last value</th> <th>Actions</th> </tr>';
 		for (var i = 0; i < sensors.length; i++)
 		{
 			str += '<tr>\n<td><input type="checkbox" id="'  + sensors[i].id + 
@@ -157,30 +173,13 @@ function myRefreshSensors()
 
 			str += '</tr>\n';
 		}
-		str += '</table>\n';
-		str += '<input type="submit" value="Save Sensor information">';
 		s.innerHTML = str;
-
-		/*
-		if (sensors.length != 0)
-		{
-		var today = new Date();
-		d.innerHTML = "" + today.getFullYear() + "-" + 
-						   String(today.getMonth() + 1).padStart(2, '0') + "-" +
-						   String(today.getDate()).padStart(2, '0') + " " +
-						   String(today.getHours()).padStart(2, '0') + ":" +
-						   String(today.getMinutes()).padStart(2, '0') + ":" +
-						   String(today.getSeconds()).padStart(2, '0')
-		} else {
-		h.innerHTML = "UNAVAILABLE";
-		}
-		*/
 	}
 	else if (this.status == 404)
 	{
 		sensors = [ { "id":"0000000000000000", "name":"No Data", "readings":[0.0]} ];
-		var s = document.getElementById("settings");
-		s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p>";
+		var s = document.getElementById("settings-table");
+		s.innerHTML = "<tr><td><H1>COMMUNICATION ERROR</H1><p>when reading back sensors</p></td></tr>";
 	}
 	};
 	xmlhttp.open("GET", url, true);
@@ -190,45 +189,41 @@ function myRefreshSensors()
 function myRefreshPresentation()
 {
 	apiGet("api/presentation", (data)=>{
-		var s = document.getElementById("presentation")
-			var str = '<legend>Presentation settings:</legend>\n<table>\n' +
-			'<tr> <th>Parameter</th> <th>Value</th> </tr>';
-			str += '<tr>\n<td>Presentation unit</td><td>';
+		var s = document.getElementById("presentation-table")
+		var str = '<tr> <th>Parameter</th> <th>Value</th> </tr>';
+		str += '<tr>\n<td>Presentation unit</td><td>';
 
-			str += '<input type="radio" id="presentation-unit-celsius" name="unit" value="C" ' +
-					(data["unit"] === "C" ? "checked":"") + ' name="unit"' +
-					'><label for="presentation-unit-celsius">Celsius</label><br>\n';
+		str += '<input type="radio" id="presentation-unit-celsius" name="unit" value="C" ' +
+				(data["unit"] === "C" ? "checked":"") + ' name="unit"' +
+				'><label for="presentation-unit-celsius">Celsius</label><br>\n';
 
-			str += '<input type="radio" id="presentation-unit-fahrenheit" name="unit" value="F" ' +
-					(data["unit"] === "F" ? "checked":"") + ' name="unit"' +
-					'><label for="presentation-unit-fahrenheit">Fahrenheit</label><br>\n';
+		str += '<input type="radio" id="presentation-unit-fahrenheit" name="unit" value="F" ' +
+				(data["unit"] === "F" ? "checked":"") + ' name="unit"' +
+				'><label for="presentation-unit-fahrenheit">Fahrenheit</label><br>\n';
 
-			str += '<input type="radio" id="presentation-unit-kelvin" name="unit" value="K" ' +
-					(data["unit"] === "K" ? "checked":"") + ' name="unit"' +
-					'><label for="presentation-unit-kelvin">Kelvin</label>\n';
-			str += '</td></tr>\n';
+		str += '<input type="radio" id="presentation-unit-kelvin" name="unit" value="K" ' +
+				(data["unit"] === "K" ? "checked":"") + ' name="unit"' +
+				'><label for="presentation-unit-kelvin">Kelvin</label>\n';
+		str += '</td></tr>\n';
 
-			str += '<tr><td>max value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
-			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymax" value="' + data["ymax"] + '"></td></tr>\n';
+		str += '<tr><td>max value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+				'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymax" value="' + data["ymax"] + '"></td></tr>\n';
 
-			str += '<tr><td>min value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
-			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymin" value="' + data["ymin"] + '"></td></tr>\n';
+		str += '<tr><td>min value</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+				'pattern="^[+-]?\\d+(\\.\\d+)?$" name="ymin" value="' + data["ymin"] + '"></td></tr>\n';
 
-			str += '<tr><td>Vertical increment</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
-			       'pattern="^[+-]?\\d+(\\.\\d+)?$" name="yincrement" value="' + data["yincrement"] + '"></td></tr>\n';
-
-			str += '</table>\n';
-			str += '<input type="submit" value="Update presentation settings">';
-			s.innerHTML = str;
+		str += '<tr><td>Vertical increment</td><td><input type="text" minlength="1" maxlength="6" size=6 ' +
+				'pattern="^[+-]?\\d+(\\.\\d+)?$" name="yincrement" value="' + data["yincrement"] + '"></td></tr>\n';
+		s.innerHTML = str;
 	}, ()=>{
-		var s = document.getElementById("presentation");
-		s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading presentation</p>";
+		var s = document.getElementById("presentation-table");
+		s.innerHTML = "<tr><td><H1>COMMUNICATION ERROR</H1><p>when reading presentation</p></td></tr>";
 	})
 }
 
-function updatePresentation()
+function updatePresentation(frm)
 {
-	alert("WARNING: updating presentation configuration!");
+	submit_btn_save(frm);
 	var elements = document.getElementById("presentation-form").elements;
 
 	var patch = { };
@@ -245,12 +240,13 @@ function updatePresentation()
 	}
 
 	myPatch("api/presentation", patch);
+	submit_btn_restore(frm);
 }
 
 
-function updateSoftAP()
+function updateSoftAP(frm)
 {
-	alert("WARNING: updating softAP configuration!");
+	submit_btn_save(frm)
 	
 	var elements = document.getElementById("softap-form").elements;
 	
@@ -266,6 +262,7 @@ function updateSoftAP()
 	}
 	
 	myPatch("api/wifi/softap", patch);
+	submit_btn_restore(frm)
 }
 
 function handleSoftApPasswordClick(checkbox) {
@@ -281,9 +278,8 @@ function myRefreshSoftAP()
 		if (this.readyState == 4 && this.status == 200) {
 			var myArr = JSON.parse(this.responseText);
 
-			var s = document.getElementById("softap")
-			var str = '<legend>SoftAP settings:</legend>\n<table>\n' +
-			'<tr> <th>Parameter</th> <th>Value</th> </tr>';
+			var s = document.getElementById("softap-table")
+			var str = '<tr> <th>Parameter</th> <th>Value</th> </tr>';
 
 			for (var key in myArr) {
 				if (myArr.hasOwnProperty(key)) {
@@ -314,23 +310,21 @@ function myRefreshSoftAP()
 					str +='</td></tr>\n';
 				}
 			}
-			str += '</table>\n';
-			str += '<input type="submit" value="Save softAP settings">';
 			s.innerHTML = str;
 		}
 		else if (this.status == 404)
 		{
-			var s = document.getElementById("softap");
-			s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back softap</p>";
+			var s = document.getElementById("softap-table");
+			s.innerHTML = "<tr><td><H1>COMMUNICATION ERROR</H1><p>when reading back softap</p></td></tr>";
 		}
 	};
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
 
-function updateNetwork()
+function updateNetwork(frm)
 {
-	alert("WARNING: updating network configuration!");
+	submit_btn_save(frm);
 	
 	var elements = document.getElementById("network-form").elements;
 	
@@ -359,6 +353,7 @@ function updateNetwork()
 	}
 	console.log("network want to update with: " + patch);
 	myPatch("api/wifi/network", patch);
+	submit_btn_restore(frm);
 }
 
 function handleNetworkPasswordClick(checkbox) {
@@ -374,9 +369,8 @@ function myRefreshNetwork()
 	if (this.readyState == 4 && this.status == 200) {
 		var myArr = JSON.parse(this.responseText);
 
-		var s = document.getElementById("network")
-		var str = '<legend>Network settings:</legend>\n<table>\n' +
-		'<tr> <th>Parameter</th> <th>Value</th> </tr>';
+		var s = document.getElementById("network-table")
+		var str = '<tr> <th>Parameter</th> <th>Value</th> </tr>';
 
 		for (var key in myArr) {
 			if (myArr.hasOwnProperty(key)) {
@@ -428,59 +422,24 @@ function myRefreshNetwork()
 				str += '</td></tr>\n';
 			}
 		}
-		str += '</table>\n';
-		str += '<input type="submit" value="Save external network settings">';
 		s.innerHTML = str;
 	}
 	else if (this.status == 404)
 	{
-		var s = document.getElementById("network");
-		s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when reading back network</p>";
+		var s = document.getElementById("network-table");
+		s.innerHTML = "<tr><td><H1>COMMUNICATION ERROR</H1><p>when reading back network</p></td></tr>";
 	}
 	};
 	xmlhttp.open("GET", url, true);
 	xmlhttp.send();
 }
-/*
-function myRefreshPersist()
-{
-	var xmlhttp = new XMLHttpRequest();
-	var url = "api/persist";
-	xmlhttp.onreadystatechange = function() {
-		if (this.readyState == 4 && this.status == 200) {
-			var myArr = JSON.parse(this.responseText);
 
-			var s = document.getElementById("persist")
-			var str = '<legend>Persistance:</legend>';
-
-			if (myArr.unsaved_changes != 0)
-			{
-				str += 'You need to save your changes to keep them after your next power on:<br>'
-				+ '<button onclick="myPatch(\'api/persist\', {\'persist_now\':1});">Save</button>\n';
-			}
-			else
-			{
-				str += 'You have no unsaved changes';
-			}
-			s.innerHTML = str;
-		}
-		else if (this.status == 404)
-		{
-			var s = document.getElementById("persist");
-			s.innerHTML = "<H1>COMMUNICATION ERROR</H1><p>when checking for unsaved changes</p>";
-		}
-	};
-	xmlhttp.open("GET", url, true);
-	xmlhttp.send();
-}
-*/
 function myRefresh()
 {
 	myRefreshSensors();
 	myRefreshPresentation();
 	myRefreshSoftAP();
 	myRefreshNetwork();
-//	myRefreshPersist();
 }
 
 function myOnLoad()
