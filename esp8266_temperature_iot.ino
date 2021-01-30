@@ -141,21 +141,27 @@ private:
     //return int16_t(v * 16);
   }
   String vtos(int16_t v) const {
-    char buff[12];
-    int end = snprintf(buff, sizeof(buff), "%d", v);
+    char real_buff[12];
+    int end = snprintf(real_buff, sizeof(real_buff), "%d", v);
+    char* buff = real_buff;
+    if (buff[0] == '-') {
+      buff++;
+      end--;
+    }
     while (end < 3)
     {
-      buff[end++] = '0';
+      for (byte i = end; i > 0; i--) {
+        buff[i] = buff[i-1];
+      }
+      buff[0] = '0';
+      end++;
     }
-    buff[end] = 0;
+    buff[end + 1] = 0;
+    buff[end] = buff[end - 1];
+    buff[end - 1] = buff[end - 2];
+    buff[end - 2] = '.';
 
-
-    buff[end+1] = 0;
-    buff[end] = buff[end-1];
-    buff[end-1] = buff[end-2];
-    buff[end-2] = '.';
-
-    return buff;
+    return real_buff;
   }
 //  float vtof(int16_t v) const {
 //    return v * 0.0625f;
