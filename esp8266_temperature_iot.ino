@@ -47,6 +47,7 @@
 #include "Mcp3208.hpp"
 
 const unsigned long time_between_1h_readings_ms = 10000UL; // 1000 ms seemed stable
+#define NUM_SAMPLES_AVERAGED_FOR_24H_SAMPLE 6
 const unsigned long time_between_24h_readings_ms = 60000UL;
 
 const int externalLED = 5; // (labeld D1 on PCB)
@@ -125,10 +126,12 @@ struct ServedSensor {
 //  inline float const getReading_1h(int index) const { return vtof(_readings_1h[index]); }
 //  inline float const getReading_24h(int index) const { return vtof(_readings_24h[index]); }
   inline String const getReading_1h(int index) const { return vtos(_readings_1h[index]); }
+  inline int16_t const getReading_1h_raw(int index) const { return _readings_1h[index]; }
   inline String const getReading_24h(int index) const { return vtos(_readings_24h[index]); }
 
   inline void addReading_1h(float value) { _readings_1h.push_back_erase_if_full(ftov(value)); }
   inline void addReading_24h(float value) { _readings_24h.push_back_erase_if_full(ftov(value)); }
+  inline void addReading_24h_raw(int16_t raw) { _readings_24h.push_back_erase_if_full(raw); }
 
   inline int getNumReadings_1h() const { return _readings_1h.size(); }
   inline int getNumReadings_24h() const { return _readings_24h.size(); }
@@ -858,7 +861,17 @@ void readSensors(bool shouldRead1h, bool shouldRead24h)
           servedSensors[j].addReading_1h(temperatureCelcius);
         }
         if (shouldRead24h) {
-          servedSensors[j].addReading_24h(temperatureCelcius);
+          // Use average from the more common 1h reading to reduce noise
+          int numReadings = servedSensors[j].getNumReadings_1h();
+          int numAvg = num_samples_since_boot_1h + 1;
+          if (numAvg > NUM_SAMPLES_AVERAGED_FOR_24H_SAMPLE) {
+            numAvg = NUM_SAMPLES_AVERAGED_FOR_24H_SAMPLE;
+          }
+          int32_t sum = 0;
+          for (int i = 0; i < numAvg; i++) {
+            sum += servedSensors[j].getReading_1h_raw(numReadings - 1 - i);
+          }
+          servedSensors[j].addReading_24h_raw(sum / numAvg);
         }
       }
     }
