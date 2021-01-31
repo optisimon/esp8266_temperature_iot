@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TempViewer - Connectors</title>
+<style>
+body {
+	font: 200% sans-serif;
+}
+
+button, div {
+	font: 100% sans-serif;
+}
+</style>
+</head>
+
+<div>
+Connectors
+
+<div style="position: absolute; right: 0; top: 0;">
+	<button onclick="window.location.href='main.html'">Values</button>
+	<button onclick="window.location.href='settings.html'">Settings</button>
+</div>
+
+
+<pre style=>
++5V   GND   NTC4  GND   NTC5  GND   OW_+  OW_DQ GND
+\__vin__/                           \___Onewire___/ 
+|                                                 |
+| ___                   _________________________ |
+| |F|                  |       WIFI antenna      ||
+| |U|        RST       |                         ||
+| |S|        GND       |                         ||
+| |E|        L-        |   Lolin D1 mini pro     ||
+| ---        L+        |                         ||
+|                      |                         ||
+|                      |     1.0.0 or 2.0.0      ||
+|                      |                         ||
+|                      |                         ||
+|                      |                         ||
+|                      |                         ||
+|                      |        Micro USB        ||
+|                       ------------------------- |
+|                                                 |
+|                                                 |
+GND   NTC0  GND   NTC1  GND   NTC2  GND   NTC3  GND
+</pre>
+
+<div>
+
+<ul>
+	<li>A reset button can be connected between RST and GND.</li>
+	<li>A status led can be connected directly between L+ and L-.</li>
+	<li>NTC temperature sensors (10KOhm at 25 degree C, and beta of 3950) can be connected between any NTC terminal and nearby GND terminal.</li>
+	<li>Up to six one wire temperature sensors (DS18B20) can be connected to OW_+ (3.3V), OW_DQ (data), and GND.</li>
+</ul>
+Currently, up to six sensors can be monitored simultaneously,
+and those can be an arbitrary mix of NTC and one wire temperature sensors.
+</div>
+
+
+</div>
+</body>
+</html>

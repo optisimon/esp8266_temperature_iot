@@ -1,6 +1,8 @@
+<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=0.5">
 <title>TempViewer - Settings</title>
 <style>
 body {
@@ -27,9 +29,10 @@ th, td {
 
 <div>
 Settings
-
-<button onclick="window.location.href='main.html'" style="position: absolute; right: 0;">Values</button>
-
+<div style="position: absolute; right: 0; top: 0; display: block;">
+<button onclick="window.location.href='connectors.html'">Connectors</button>
+<button onclick="window.location.href='main.html'">Values</button>
+</div>
 </div>
 
 <div id="settings">
@@ -297,16 +300,16 @@ function myRefreshSoftAP()
 					}
 					else if (key == "ssid")
 					{
-						str += '<input type="text" minlength="1" maxlength="32" size="32" required';
+						str += '<input type="text" minlength="1" maxlength="32" size="20" required';
 					}
 					else if (key == "password")
 					{
-						str += '<input id="softap-password-field" type="password" disabled minlength="8" maxlength="63" size="63" required';
+						str += '<input id="softap-password-field" type="password" disabled minlength="8" maxlength="63" size="20" required';
 					}
 					str += ' name="' + key + '"';
 
 					if (key == "password") {
-						str += '><input type="checkbox" id="softap-update-password" onclick="handleSoftApPasswordClick(this);">' + 
+						str += '><br><input type="checkbox" id="softap-update-password" onclick="handleSoftApPasswordClick(this);">' + 
 							   '<label for="softap-update-password">Change password</label>\n';
 					}
 					else
@@ -384,12 +387,12 @@ function myRefreshNetwork()
 
 				if (key == "ssid")
 				{
-					str += '<input type="text" minlength="1" maxlength="32" size="32" required name="ssid" value="' + myArr[key] + '">';
+					str += '<input type="text" minlength="1" maxlength="32" size="20" required name="ssid" value="' + myArr[key] + '">';
 				}
 				else if (key == "password")
 				{
-					str += '<input id="network-password-field" type="password" disabled minlength="8" maxlength="63" size="63" required name="password">' +
-					       '<input type="checkbox" id="network-update-password" onclick="handleNetworkPasswordClick(this);">' + 
+					str += '<input id="network-password-field" type="password" disabled minlength="8" maxlength="63" size="20" required name="password">' +
+					       '<br><input type="checkbox" id="network-update-password" onclick="handleNetworkPasswordClick(this);">' + 
 					       '<label for="network-update-password">Change password</label>\n';
 				}
 				else if (key === "static") {
@@ -454,7 +457,7 @@ function myOnLoad()
 
 	function initialize() {
 		myRefresh();
-		setInterval(myRefresh, 100000); // used to be 10000
+		setInterval(myRefreshSensors, 60000);
 	}
 }
 </script>
